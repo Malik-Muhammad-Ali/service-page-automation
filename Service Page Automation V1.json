@@ -1,0 +1,3199 @@
+{
+  "name": "Service Page Automation V1",
+  "nodes": [
+    {
+      "parameters": {
+        "query": "={{ $json.query }}",
+        "options": {
+          "topic": "general",
+          "search_depth": "basic",
+          "max_results": 5,
+          "include_answer": "basic",
+          "include_raw_content": false
+        }
+      },
+      "type": "@tavily/n8n-nodes-tavily.tavily",
+      "typeVersion": 1,
+      "position": [
+        3904,
+        -560
+      ],
+      "id": "d712bbe7-3d56-4948-b051-b06795c2843f",
+      "name": "Search",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "credentials": {
+        "tavilyApi": {
+          "id": "WcPoUKaUQIb1dNCS",
+          "name": "Tavily account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "scrape",
+        "url": "={{ $json.service_page_sample_url }}",
+        "additionalFields": {
+          "customProperties": "{\n    \"onlyMainContent\": false,\n    \"maxAge\": 172800000,\n    \"parsers\": [],\n    \"formats\": [\n        \"html\"\n    ]\n  }"
+        },
+        "useCustomBody": true,
+        "requestOptions": {}
+      },
+      "type": "@mendable/n8n-nodes-firecrawl.firecrawl",
+      "typeVersion": 1,
+      "position": [
+        784,
+        -368
+      ],
+      "id": "c0d8269d-a6d4-4a26-8edf-b8bc17115843",
+      "name": "Scrape Service Page",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "credentials": {
+        "firecrawlApi": {
+          "id": "nzhCPOgQF94avC0E",
+          "name": "Firecrawl account Afaq"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "[\n  {\n    \"output\": {\n      \"type\": \"list\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    }\n  }\n]"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1360,
+        2992
+      ],
+      "id": "61a5af36-0aff-4f5c-9829-ed10d39e99ad",
+      "name": "Structured Output Parser for Search Queries",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input HTML coming from previous node\nlet html = $input.first().json.data.html;\n\n// Remove \\n and also trim extra spaces\nhtml = html.replace(/\\n/g, ' ').replace(/\\s+/g, ' ').trim();\n\n// Return cleaned html\nreturn {\n  cleaned_html: html\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -368
+      ],
+      "id": "7dcc9159-9875-4de3-af2d-98dde305c8d5",
+      "name": "Format and Clean the HTML"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a16ebe7c3fe0.ngrok-free.app/scrape",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $json.reddit_url }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1888,
+        2816
+      ],
+      "id": "9bf2e6a2-7353-4c42-a744-39a280142419",
+      "name": "Get Reddit Posts",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all input items\nconst input = $items();\n\nlet allPosts = [];\n\ninput.forEach(item => {\n    const obj = item.json;\n    if (obj.posts && Array.isArray(obj.posts)) {\n        obj.posts.forEach(post => {\n            // Only include posts with score > 1\n            if (post.score && post.score > 1) {\n                allPosts.push({\n                    title: post.title || null,\n                    selftext: post.selftext || null,\n                    subreddit: post.subreddit || post.domain || null, // fallback if subreddit missing\n                    permalink: post.permalink || null,\n                    score: post.score\n                });\n            }\n        });\n    }\n});\n\n// Return a single object with posts array and total count\nreturn [{ \n    json: { \n        posts: allPosts,\n        total_posts: allPosts.length\n    } \n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        2816
+      ],
+      "id": "a7234875-25a1-419e-b341-1afc5c4e7968",
+      "name": "Format Posts",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get LLM output\nconst queries = $json.output;\n\n// Convert each query into a Reddit search URL\nconst redditUrls = queries.map(q => {\n  const encoded = encodeURIComponent(q);\n  return `https://www.reddit.com/search.json?q=${encoded}&sort=new&limit=20`;\n});\n\n// Return as array of objects (required by n8n)\nreturn redditUrls.map(url => ({\n  reddit_url: url\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        2816
+      ],
+      "id": "397cec86-1b50-4b00-98a5-c0739695928a",
+      "name": "Reddit Posts URLS",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here are the Reddit posts to analyze:\n\n## Target Services:\n{{ $('On form submission').last().json['Target Service'].split(\", \").join(\"\\n\") }}\n\n## Reddit Queries:\n{{ $('Generate Reddit Search Queries').first().json.output.join(\"\\n\") }}\n\n## Posts:\n{{$json[\"posts\"].map((post, index) => `\nPost ${index + 1}:\ntitle: ${post.title}\ncontent: ${post.selftext}\nsubreddit: ${post.subreddit}\n`).join(\"\\n\")}}\n\n\n\nPlease review the posts and return the posts that are 50% relevant to the services and reddit queries as instructed.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are a best content analysis assistant.\n\n# You are given:\n1) List of target services\n2) A list of reddit posts with `title`, `selftext`, `subreddit`, and `permalink`.\n3) A list of search queries used to fetch these posts.\n\n# Your task:\n- Review each post.\n- Keep only posts that are 50% relevant to the list of client services and reddit search querirs and are useful for content writing.\n- Discard posts that are irrelevant, low-quality, or not useful.\n- Relevance is based on closeness to the client services, search queries and meaningful content.\n- Return only the posts that pass the filter in the same structure: {title, selftext, subreddit}.\n- Do NOT modify the text content.\n- Filter the posts such that these filtered posts will be used to write the service page content for a company that will provide these services."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2272,
+        2816
+      ],
+      "id": "a7014caf-9123-42e5-8999-5bff7f27bfa3",
+      "name": "Analyze Useful Posts",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        2992
+      ],
+      "id": "228667cf-f57a-4669-92a7-e4bf611a15c7",
+      "name": "OpenRouter GPT-5",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        2992
+      ],
+      "id": "cfd6736f-0a07-42d0-99fb-2d86187ce5f4",
+      "name": "OpenRouter gpt-5",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "[\n  {\n    \"title\": \"string\",\n    \"selftext\": \"string\",\n    \"subreddit\": \"string\"\n  }\n]\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2416,
+        2992
+      ],
+      "id": "28b82f58-bf9f-42d9-ab38-a0e4636b196a",
+      "name": "Structured Output Parser for Posts",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "[\n  {\n    \"output\": {\n      \"type\": \"list\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    }\n  }\n]"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3472,
+        -336
+      ],
+      "id": "de28e853-5cf2-4121-aaf4-6bcea3dabe46",
+      "name": "Structured Output Parser for Search Queries1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=\n## Primary Target Keyword (exact phrase)\n{{ $('Generate Target Keyword').last().json.target_keyword }}\n\n## Target Location\n{{ $('Get Client Profile Data').last().json.target_location }}\n\n## Target Services\n{{ $('Map Fillout Fields').last().json['Target Service'] }}\n\n## Additional Notes\n{{ $('Map Fillout Fields').last().json['Additional Notes'] }}\n\n## Keyword Variations (optional)\nService: {{ $('Generate Target Keyword').last().json.target_service }}\nLocation: {{ $('Generate Target Keyword').last().json.target_location }}\nLowercase: {{ $('Generate Target Keyword').last().json.target_keyword_lower }}\n\n\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You generate Google search queries for fast, high-quality web research (Tavily). The goal is to gather trustworthy, practical information to support writing a healthcare service page.\n\nINPUTS YOU MAY RECEIVE\n- Primary target keyword (exact phrase)\n- Target service and location\n- Additional notes (may include constraints like audience, gender, etc.)\n\nTASK\nGenerate 8–10 Google search queries designed to return:\n- Clear definitions and “what it is / who it helps”\n- What to expect (assessment, sessions, duration, techniques)\n- Safety/contraindications and who should talk to a clinician first\n- Evidence-based benefits phrased cautiously (no cure/guarantee claims)\n- Common questions (PAA-style)\n- Local intent and decision factors (Toronto-specific when relevant)\n- Trust signals (credentials, training, professional standards, clinic experience)\n- Patient language (symptoms, complaints, situations people search)\n\nRULES\n- Include the exact primary target keyword in at least 3 queries\n- Mix informational + local-intent queries\n- No competitor brand names\n- No “vs”, “best”, “top”, “#1”, “guarantee”, “cure”\n- Queries should be natural, 6–12 words when possible\n- Output ONLY a JSON array of strings. No extra text.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        3296,
+        -560
+      ],
+      "id": "b05ae914-2b08-46a3-85af-c918f4546638",
+      "name": "Generate Google Search Queries",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## Target Location: \n{{ $('Get Client Profile Data').item.json.target_location }}\n\n## Target Services:\n{{ $('On form submission').item.json['Target Service'].split(\", \").join(\"\\n\") }}\n\n## Additional Notes:\n{{ $('On form submission').item.json['Additional Notes'] }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an AI assistant that generates high-quality Reddit search queries for market research based on a  target services and target location.\n\n## Input:\n - Target location (city, state/province, country)\n - List of target services offered by the client\n - Additional notes (if provided)\n\n## Tasks:\nGenerate 6–8 highly relevant Reddit search queries that can be used to research:\n - How these services work in real-world scenarios\n - Common problems, complaints, and pain points people face\n - Customer expectations and decision-making factors\n - Success factors and trust signals for these services\n - Experiences specific to the given target location (when relevant)\n\nThe queries should help gather high-quality, experience-based Reddit discussions that can be used to write or improve a service page.\n\n## Rules:\n1) Queries must be directly related to the target services\n2) Queries must reflect real user intent (questions, experiences, advice, problems)\n3) Do NOT create comparison-style queries (no “vs”, “better than”, brand comparisons)\n4) Keep queries natural and human-written\n5) Queries should not be overly long\n6) Do NOT include:\n - site:reddit\n - subreddit names\n\n7) Do not include the location in search tersms\n\n## Output:\n - Return ONLY a JSON array of search queries\n - No explanations\n - No extra text\n\n## Examples:\nExample 1:\n[\n  \"physiotherapy home care services patient experiences\",\n  \"home physiotherapy recovery outcomes\",\n  \"common problems with in home physio treatment\",\n  \"what to expect from home physiotherapy sessions\",\n  \"is home physiotherapy effective for recovery\",\n  \"choosing a home physiotherapist advice\"\n]\n\nExample 2:\n[\n  \"managed IT services for small business experiences\",\n  \"common IT support issues in small companies\",\n  \"how managed IT services work for businesses\",\n  \"problems businesses face without IT support\",\n  \"what to expect from an IT managed services provider\",\n  \"is outsourcing IT support worth it\"\n]\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1216,
+        2816
+      ],
+      "id": "308622e9-4d52-4d50-8e7b-e57ce69eb463",
+      "name": "Generate Reddit Search Queries",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Generate the reddit search queries\n - Use the service page to generate the reddit search queries\n - Then using those queries make urls for fetching reddit posts",
+        "height": 544,
+        "width": 544,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1200,
+        2672
+      ],
+      "typeVersion": 1,
+      "id": "b022a398-b6d6-47ee-a855-fb8eb462bf22",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Get reddit posts\n - Fetch the reddit posts\n - Fomat the posts and only pass the posts that have score greater than 1\n - Then filter irrelevant posts\n - Only take useful posts that are revelant to the services",
+        "height": 544,
+        "width": 816,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1824,
+        2720
+      ],
+      "typeVersion": 1,
+      "id": "e9bd76e9-848a-4a1b-82b4-5b00f6bcb55f",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n    {\n        json: {\n            travily_insights: items.map(item => {\n                const data = item.json || {};\n\n                const query = data.query || \"\";\n                const answer = data.answer || \"\";\n\n                // Filter only title + content from results\n                const cleanedResults = Array.isArray(data.results)\n                    ? data.results.map(r => ({\n                        title: r.title || \"\",\n                        content: r.content || \"\"\n                    }))\n                    : [];\n\n                return {\n                    query,\n                    answer,\n                    results: cleanedResults\n                };\n            })\n        }\n    }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4096,
+        -560
+      ],
+      "id": "fb98f5ed-f0d5-4d95-aa91-867620e9de9b",
+      "name": "Format & Clean the Travily Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const queries = items[0].json.output || [];\n\nreturn queries.map(q => ({\n    json: { query: q }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3712,
+        -560
+      ],
+      "id": "b001434d-9940-4a6b-a8e7-71b5eddfdf49",
+      "name": "Format Agent Result"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        3328,
+        -336
+      ],
+      "id": "cc7c6ab9-0b5b-4e59-ba17-d63c62accc23",
+      "name": "OpenRouter GPT5",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You will receive HTML content from a website's service page. Your task is to analyze the structure and layout of the page and return a clean outline describing only the visual layout and appearance of each section.\n\n## Objectives:\nBreak the page into logical sections such as: header, services, service descriptions and footer, etc.\n\nFor each section, write one paragraph. Start each paragraph with the section name (e.g., “Header:”, “Hero Section:”).\n\nDescribe the structure, visuals, layout, number of images, position of images, position of text, column/grid layout, buttons, visual elements, background color or image, spacing, and any other layout-related characteristics.\n\nDo not include or rewrite any actual text from the page. Do not summarize text content. Only describe layout, structure, and appearance. Each section must be in its own paragraph with no bullet points and no markdown.\n\n## HTML of service page:\n{{ $('Format and Clean the HTML').item.json.cleaned_html }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an expert web content analyst specializing in service page structure analysis for healthcare and local service businesses.\n\n## Task\nAnalyze the provided HTML of a client's existing service page and extract a detailed structural template. This template will be used to generate NEW content for a DIFFERENT service, but following the SAME structure and approximate word counts as this page.\n\n## Critical Understanding\n- Every client's website has a unique design and layout\n- You must extract the ACTUAL structure of THIS specific page\n- Do NOT assume any standard template - discover what's actually there\n- Word counts and section types will vary between clients\n\n## What to Extract\n\nFor EACH content section you find on the page, identify:\n1. Section name/type (be descriptive - e.g., \"hero_headline\", \"three_column_features\", \"symptoms_checklist\")\n2. Actual word count (count the words in that section)\n3. Purpose of the section (what it accomplishes for the reader)\n4. Format notes (is it bullets, numbered list, paragraphs, columns, etc.)\n5. A brief excerpt from the actual page (10-20 words to show style/tone)\n6. For repeating elements: how many items exist\n\n## Section Types You Might Find (but don't assume - only report what exists)\n- Headlines (H1, H2)\n- Subheadlines or taglines\n- Feature boxes or cards (could be 2, 3, 4, or any number)\n- Body copy paragraphs\n- Bullet or checklist sections\n- Image placeholders (note their location)\n- Testimonial sections\n- FAQ sections\n- Call-to-action blocks\n- Service/treatment lists\n- Team member sections\n- Insurance/payment sections\n- Location/areas served sections\n- faq_section (questions with expandable answers - capture each Q&A)\n- contact_cta (final contact call-to-action before footer)\n\n## What to IGNORE (do not include in analysis)\n- Site header/navigation (universal across site)\n- Site footer (universal across site)\n- Sidebar widgets unrelated to service content\n- Cookie notices, popups, chat widgets\n- Social media icons/links\n\n## Handling Special Sections\nIf you encounter sections that appear to contain:\n- Insurance providers list → Mark as source: \"client_profile_or_skip\"\n- Areas served list → Mark as source: \"client_profile_or_skip\"  \n- Contact information → Mark as source: \"client_profile\"\n- Testimonials with specific names → Mark as source: \"client_provided_or_skip\"\n\nThese sections exist in the template but content should come from elsewhere, not be generated.\n\n## Rules\n1. Count words as accurately as possible for each section\n2. Preserve the EXACT ORDER of sections as they appear\n3. Only include sections that actually exist - never invent sections\n4. Be specific about formatting (e.g., \"2-column grid with icon + title + 30-word description\")\n5. Note where images appear and their apparent purpose\n6. If a section's content would need to come from external data, note that\n\n## Additional Rules for Specific Section Types\n\n### FAQs\nIf the page contains FAQ questions and answers:\n- Count each Q&A pair\n- Note the typical answer length\n- Mark as section_type: \"faq_section\"\n\n### Images\nFor any images within the main content (not header/footer):\n- Note their position (after which section)\n- Describe what the image appears to show based on context\n- Add to image_placeholders array\n\n## Output Format\nReturn a single valid JSON object matching the required schema.\nDo NOT include markdown, code blocks, or explanations outside the JSON.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2464,
+        -544
+      ],
+      "id": "a4d9315c-4f38-48d2-b75a-e6dbcf334d29",
+      "name": "Analyze Service Page Outline"
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-sonnet-4",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2464,
+        -336
+      ],
+      "id": "121c38ee-c146-4655-bcac-2dccdf2d793c",
+      "name": "OpenRouter Claude Opus 4.5",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"template_analysis\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"total_sections\": {\n          \"type\": \"number\",\n          \"description\": \"Total number of content sections found\"\n        },\n        \"estimated_total_word_count\": {\n          \"type\": \"number\",\n          \"description\": \"Approximate total word count of all content\"\n        },\n        \"sections\": {\n          \"type\": \"array\",\n          \"description\": \"Array of all content sections in order\",\n          \"items\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"section_id\": {\n                \"type\": \"number\",\n                \"description\": \"Order of appearance (1, 2, 3...)\"\n              },\n              \"section_name\": {\n                \"type\": \"string\",\n                \"description\": \"Descriptive name for this section\"\n              },\n              \"section_type\": {\n                \"type\": \"string\",\n                \"description\": \"Type of content block\"\n              },\n              \"word_count\": {\n                \"type\": \"number\",\n                \"description\": \"Actual word count found in this section\"\n              },\n              \"purpose\": {\n                \"type\": \"string\",\n                \"description\": \"What this section accomplishes\"\n              },\n              \"format_notes\": {\n                \"type\": \"string\",\n                \"description\": \"Layout and formatting details\"\n              },\n              \"example_excerpt\": {\n                \"type\": \"string\",\n                \"description\": \"Brief sample from the actual content\"\n              },\n              \"item_count\": {\n                \"type\": \"number\",\n                \"description\": \"For repeating elements, how many items\"\n              },\n              \"source\": {\n                \"type\": \"string\",\n                \"description\": \"Where content should come from: generate, client_profile, client_profile_or_skip, client_provided_or_skip\"\n              }\n            },\n            \"required\": [\"section_id\", \"section_name\", \"section_type\", \"word_count\", \"purpose\"]\n          }\n        },\n        \"image_placeholders\": {\n          \"type\": \"array\",\n          \"description\": \"Images found on the page\",\n          \"items\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"image_id\": {\n                \"type\": \"number\"\n              },\n              \"location_after_section\": {\n                \"type\": \"number\",\n                \"description\": \"This image appears after section_id X\"\n              },\n              \"apparent_purpose\": {\n                \"type\": \"string\",\n                \"description\": \"What this image seems to represent\"\n              }\n            }\n          }\n        }\n      },\n      \"required\": [\"total_sections\", \"sections\"]\n    }\n  },\n  \"required\": [\"template_analysis\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2608,
+        -352
+      ],
+      "id": "93f2c1ee-c89f-400b-85d2-a0ac97ad4400",
+      "name": "Structured Output Parser for Layout"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1wZbx_ifZ3NcxB7o85flrfS5R41kO7VR9QGXzoub91R4",
+          "mode": "list",
+          "cachedResultName": "ClientProfiles",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1wZbx_ifZ3NcxB7o85flrfS5R41kO7VR9QGXzoub91R4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1wZbx_ifZ3NcxB7o85flrfS5R41kO7VR9QGXzoub91R4/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "client_id",
+              "lookupValue": "={{ $json.client_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -176,
+        -400
+      ],
+      "id": "6d76ae66-041b-4487-b057-399202ab1918",
+      "name": "Get Client Profile Data",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ISu8nb3aKK0gLavq",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6ae1022e-62f0-432f-b35c-c572fe536a91",
+              "leftValue": "={{ $json.client_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -176,
+        -192
+      ],
+      "id": "9e7e27ae-2c6b-4399-ac80-b434636dd2aa",
+      "name": "Check If Client Exists"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8a73f2c1-c7ac-446a-bb49-6ffcf3ee430e",
+              "leftValue": "=={{ $('Get Client Profile Data').last().json.service_page_sample_url }}\n",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        80,
+        -384
+      ],
+      "id": "e6699074-3e38-4f3e-a9f3-3188feea1dcf",
+      "name": "Check If Service Page Url Exists"
+    },
+    {
+      "parameters": {
+        "errorMessage": "Client Not Found"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        48,
+        -192
+      ],
+      "id": "816e5c2b-4f7a-4c79-9178-5a0a769f2b1d",
+      "name": "Client Not Found"
+    },
+    {
+      "parameters": {
+        "errorMessage": "Service page URL does not exists. Please add the sample service page url."
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        224,
+        -208
+      ],
+      "id": "bd99ae84-ab25-4c6c-85ae-403ce614df36",
+      "name": "Service Page Url Not Found"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## PRIMARY TARGET KEYWORD (exact phrase)\n{{ $('Generate Target Keyword').last().json.target_keyword }}\n\n## TARGET SERVICE + LOCATION\nService: {{ $('Map Fillout Fields').last().json['Target Service'] }}\nLocation: {{ $('Map Fillout Fields').last().json['Target Location'] }}\n\n## WEBHOOK / INTAKE NOTES\nClient ID: {{ $('Map Fillout Fields').last().json.client_id }}\nAdditional Notes: {{ $('Map Fillout Fields').last().json['Additional Notes'] }}\nClinician Name (if provided): {{ $('Map Fillout Fields').last().json['Clinician Name (Optional)'] || 'Not provided' }}\nSame-Day Available: {{ $('Map Fillout Fields').last().json['Same-Day Appointments For This Service?'] }}\nDirect Billing Available: {{ $('Map Fillout Fields').last().json['Is Direct Billing Available For This Service?'] }}\n\n## CLIENT PROFILE CONTEXT (brand + constraints)\nBrand Name: {{ $('Get Client Profile Data').last().json.brand_name }}\nBrand Tone: {{ $('Get Client Profile Data').last().json.brand_tone }}\nCTA Preference: {{ $('Get Client Profile Data').last().json.cta_preference }}\nWriting Guidelines: {{ $('Get Client Profile Data').last().json.writing_guidelines }}\nCompliance Rules: {{ $('Get Client Profile Data').last().json.compliance_rules }}\n\n## TARGET AUDIENCE PERSONA (if available)\n{{ $('Generate Target Audience Persona').last().json.output }}\n\n## WEB RESEARCH INSIGHTS (TAVILY)\n{{ JSON.stringify($('Format & Clean the Travily Result').last().json.travily_insights, null, 2) }}\n\nTASK:\nSynthesize the inputs above into a market research brief that will be used to write a high-quality service page.\n\nReturn JSON ONLY in the required schema:\n- definitions + how it works\n- patient language and pain points\n- what to expect + process + session expectations\n- trust signals and E-E-A-T recommendations\n- objections and how to address them\n- local intent insights for the target location\n- recommended on-page FAQ questions + short answer bullets\n\nDo not add promotional claims. Do not mention Tavily, Google, competitors, or AI.\n\n\n\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an AI research assistant that generates high-quality, detailed content about target services and the broader niche they belong to, for use in a service page.\n\nYou will receive:\n- Intake details (target service, location, notes, clinician)\n- Client profile (brand/tone, CTAs, guidelines, compliance rules)\n- Web research summaries (Tavily search insights)\n\n## Tasks:\n1) Research and provide content for each target service, as well as related concepts, trends, and the broader niche context, including:\n - What the service is and how it works\n - Common problems, challenges, or customer pain points\n - Benefits and value of the service\n - How customers typically experience the service\n - Related trends, techniques, or complementary services in the same niche\n - Tips for choosing or using the service effectively\n - Trust and reliability signals relevant to the service\n\n2) Output the content in plain text, with each service and its related context separated and written in clear, readable paragraphs.\n\n3) Include headings for each service for clarity.\n\n## Rules:\n1) Focus on the target services and their niche, but you may explore related concepts and context to provide richer content.\n2) Use a professional, trustworthy, and informative tone unless otherwise specified.\n3) Avoid exaggerated claims or unverified information.\n4) Make the content actionable, clear, and suitable for a service page rewrite.\n5) Do not include unrelated topics, comparisons, or promotions.\n\n## Output:\n - Plain text format\n - Each service (and its context) should have its own heading\n - Include multiple paragraphs for each service\n - Key takeaways or important points can be included within the text as part of the paragraphs\n\nReturn ONLY valid JSON that matches the provided schema. No markdown, no extra text.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        4304,
+        -560
+      ],
+      "id": "aee22a0a-0a76-47ae-9817-674fe43085f5",
+      "name": "Market Research Assistant"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"research_brief\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"primary_target_keyword\": { \"type\": \"string\" },\n        \"secondary_keywords\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"service_definition\": { \"type\": \"string\" },\n        \"how_it_works\": { \"type\": \"string\" },\n        \"who_its_for\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"common_conditions_or_symptoms\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"patient_language_phrases\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"benefits_cautious\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"what_to_expect\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"initial_assessment\": { \"type\": \"string\" },\n            \"treatment_sessions\": { \"type\": \"string\" },\n            \"typical_timeline_ranges\": { \"type\": \"string\" }\n          },\n          \"required\": [\"initial_assessment\", \"treatment_sessions\"]\n        },\n        \"trust_signals_and_eeat\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"objections_and_responses\": {\n          \"type\": \"array\",\n          \"items\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"objection\": { \"type\": \"string\" },\n              \"response_angle\": { \"type\": \"string\" }\n            },\n            \"required\": [\"objection\", \"response_angle\"]\n          }\n        },\n        \"local_intent_insights\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n        \"recommended_faqs\": {\n          \"type\": \"array\",\n          \"items\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"question\": { \"type\": \"string\" },\n              \"short_answer_bullets\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n            },\n            \"required\": [\"question\", \"short_answer_bullets\"]\n          }\n        },\n        \"competitor_opportunities\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"content_gaps_to_cover\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n            \"must_have_sections\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n            \"differentiation_angles\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n          }\n        },\n        \"compliance_safety_notes\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n      },\n      \"required\": [\"primary_target_keyword\", \"service_definition\", \"how_it_works\", \"what_to_expect\", \"recommended_faqs\"]\n    }\n  },\n  \"required\": [\"research_brief\"]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        4464,
+        -352
+      ],
+      "id": "a91d7780-4e15-461a-9fe4-ed4ace59f112",
+      "name": "Structured Output Parser for Assistant Research"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        4320,
+        -352
+      ],
+      "id": "c5329b7c-102b-4ef3-95c7-8fc7c362b627",
+      "name": "OpenRouter Gpt-5",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      html: $json.html\n        .replace(/\\\\n/g, \"\")  // remove literal \\n if any\n        .replace(/\\r?\\n|\\r/g, \"\") // remove actual newlines\n        .replace(/\"/g, \"'\")\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3296,
+        3712
+      ],
+      "id": "1b3239e9-3ad3-44b0-9e02-b76d89090753",
+      "name": "Format & Clean the Service Page HTML",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here is the HTML document. Add JavaScript to make all interactive elements work, and return the full HTML including the CSS and the attached JS:\n\n## HTML:\n{{ $json.html }}",
+        "options": {
+          "systemMessage": "=You are a senior frontend developer.\n\n## Task\nYour role is to take a complete HTML page (including CSS) and attach fully functional JavaScript for interactive elements such as:\n\n- Mobile hamburger menu toggle\n- FAQ or accordion toggle\n- Testimonial sliders / carousels\n- Any other toggleable/expandable sections (e.g., `.toggle`, `.expand`, `.collapse`)\n\nYou must output the **entire HTML page** including the previous HTML, CSS, and the attached JavaScript.\n\n## Critical Rules for JS\n1) **Do not include any comments** (`//` or `/* */`) in the JavaScript.\n2) Remove all escaped line breaks or extra backslashes from JavaScript.\n3) Ensure the JS is fully functional and minified if needed.\n4) JS must be placed inside a `<script>` tag at the bottom of `<body>`.\n5) The script must handle:\n   - Hamburger/mobile navigation menus\n   - FAQ/accordion sections\n   - Sliders/testimonials\n   - Any other expandable/collapsible elements\n6) Ensure the script works on page load and supports window resizing for sliders.\n7) Maintain the existing HTML and CSS as-is.\n8) Do not change the text content or HTML structure.\n9) The JavaScript should be fully functional.\n10) Make sure the functional elements like hamburger menu, testimonials, faqs are attached with JavaScript and they works properly.\n\n## Output Format\n- Return a single JSON object.\n- The JSON object **must contain exactly one key** named `\"html\"`.\n- The value of `\"html\"` **must be a string** containing the complete HTML page (HTML + CSS + JS).\n- Do not include markdown, code blocks, comments, or any extra text outside the JSON object."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        5104,
+        3376
+      ],
+      "id": "96313c99-2a51-498b-9aec-9807b77ae8be",
+      "name": "Add JavaScript to the Service Page",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## CONTENT BRIEF TO ANALYZE\n\n{{ $('Compliance Review Agent').last().json.output }}\n\n---\n\n## TARGET SERVICE\n{{ $('Map Fillout Fields').last().json['Target Service'] }}\n\n## TARGET LOCATION\n{{ $('Get Client Profile Data').last().json.target_location }}\n\n## BRAND NAME\n{{ $('Get Client Profile Data').last().json.brand_name }}\n\n---\n\nAnalyze the content brief above and generate image recommendations for each section that would benefit from imagery. Include both Gemini (Nano Bananna) prompts and Unsplash fallback URLs. Return the enhanced content brief as valid JSON.",
+        "options": {
+          "systemMessage": "=You are a senior visual content strategist specializing in healthcare service websites. Your role is to analyze content briefs and generate comprehensive image recommendations that include both AI generation prompts and stock photo alternatives.\n\n## Task\nReview the provided content brief and determine which sections would benefit from imagery. For each image opportunity, provide:\n1. An Gemini (Google) optimized prompt for custom image generation\n2. A working Unsplash fallback URL as an immediate alternative\n\n## INPUT FORMAT\nYou receive a JSON content brief with:\n- target_service, target_location, total_sections, total_word_count\n- sections array with content for each section\n- seo_metadata object\n\n## IMAGE GENERATION GUIDELINES\n\nGenerate prompts optimized for **Gemini 2.0 Flash** image generation.\n\n### Prompt Structure for Gemini:\n1. Start with the main subject and action\n2. Describe the setting and environment\n3. Specify lighting and mood\n4. Include style keywords at the end\n\n### Example Gemini Prompts:\n- \"A female physiotherapist in a modern clinic helping a patient with shoulder exercises, bright natural lighting through large windows, clean minimalist healthcare environment, professional photography style, warm and welcoming atmosphere\"\n- \"Close-up of hands performing therapeutic massage on a patient's lower back, soft clinical lighting, professional healthcare setting, shallow depth of field, calming neutral tones\"\n- \"Modern physiotherapy clinic reception area with comfortable seating, green plants, natural wood accents, large windows with city skyline visible, inviting and professional atmosphere\"\n\n### Prompt Rules:\n- Be specific and descriptive (50-100 words)\n- Describe real scenes, not abstract concepts\n- Include lighting details (natural light, soft lighting, warm tones)\n- Specify the environment (clinic, treatment room, reception)\n- Add mood/atmosphere keywords (welcoming, professional, calming)\n- End with style keywords (professional photography, high quality, photorealistic)\n\n### DO NOT include in prompts:\n- Text, logos, or watermarks\n- Brand names on clothing or equipment\n- Lab coats, scrubs, or stethoscopes (unless specifically a medical clinic)\n- Overly clinical or sterile environments\n- Stock photo clichés (handshakes, thumbs up, pointing at camera)\n- People in compromising or underdressed situations\n\n### Image Dimensions by Placement Type:\n- hero: 1200x600 (wide banner)\n- inline: 800x600 (content image)\n- accent: 600x600 (square)\n- team: 600x600 (portrait)\n\n## OUTPUT FORMAT\nReturn valid JSON matching the required schema. Preserve ALL section structure exactly as provided in the input.\n\nIMPORTANT: Your response must be wrapped in a \"final_content_brief\" object like this:\n{\n  \"final_content_brief\": {\n    \"target_service\": \"...\",\n    \"target_location\": \"...\",\n    \"total_sections\": 15,\n    \"total_word_count\": 959,\n    \"sections\": [...],\n    \"seo_metadata\": {...},\n    \"compliance_summary\": {...},\n    \"image_recommendations\": [\n      {\n        \"image_id\": 1,\n        \"placement_after_section\": 1,\n        \"placement_type\": \"hero\",\n        \"gemini_prompt\": \"Detailed prompt for Gemini image generation...\",\n        \"image_dimensions\": \"1200x600\",\n        \"alt_text\": \"Descriptive alt text for accessibility and SEO\",\n        \"context_notes\": \"Why this image works for this section\"\n      }\n    ]\n  }\n}\n\nCRITICAL JSON FORMATTING RULES:\n- All string values must have properly escaped quotes (\\\")\n- No literal newlines inside string values - use \\n instead\n- No unescaped special characters\n- Validate your JSON is parseable before returning"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        7056,
+        -192
+      ],
+      "id": "5c325f53-7f20-4296-bb4c-3b3324787bc7",
+      "name": "Image Placement Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are provided with comprehensive market research and planning inputs for writing a high-quality service page.\n\n----------------------------\n## TASK:\n----------------------------\nWrite the content for the service page using the travily market research, AI Assistant market research and the services offered.\n\n----------------------------\n## MARKET RESEARCH INSIGHTS OF TRAVILY:\n----------------------------\n{{ \n$('Format & Clean the Travily Result').last().json.travily_insights.map((search, index) => `\nSearch ${index + 1}:-\nQuery: ${search.query}\nAnswer: ${search.answer}\nResults:\n${search.results.map((res, i) => `${i+1}) Title: ${res.title}\n   Content: ${res.content}`).join(\"\\n\")}\n`).join(\"\\n\\n\")\n}}\n\n----------------------------\n## MARKET RESEARCH INSIGHTS OF AI ASSISTANT:\n----------------------------\n{{ $json.output.research_text }}\n\n----------------------------\n## OUTLINE OF SERVICE PAGE:\n----------------------------\nYou MUST follow this outline structure closely. The HTML should match at least 70% of the outline.\n\n{{ $('Analyze Service Page Outline').last().json.output.layout }}\n\n----------------------------\n## TARGET SERVICES:\n----------------------------\n{{ $('Map Fillout Fields').last().json['Target Service'].split(\", \").join(\"\\n\") }}\n\n----------------------------\n## ADDITIONAL NOTES:\n----------------------------\nFollow these instructions strictly.\n\n{{ $('Map Fillout Fields').last().json['Additional Notes'] }}\n\n----------------------------\n## ADDITIONAL DATA:\n----------------------------\nUse this to control tone, messaging, and CTAs.\n\nBrand Tone: {{ $('Get Client Profile Data').last().json.brand_tone }}\nCTA Preference: {{ $('Get Client Profile Data').last().json.cta_preference }}\nEmail Address: {{ $('Get Client Profile Data').last().json.email_address }}\nWriting Guidelines{{ $('Get Client Profile Data').last().json.writing_guidelines }}\nTarget Location: {{ $('Get Client Profile Data').last().json.target_location }}",
+        "options": {
+          "systemMessage": "=You are a senior sofware engineer and SEO content architect.\n\n## Task:\nYour role is to transform market research and planning inputs into a high-quality, production-ready service page written in HTML. Make responsive and fully functional production ready service page.\n\n## Input:\n1) MARKET RESEARCH INSIGHTS (TRAVILY / GOOGLE):-\nResearch related to the target services\nIncludes:\n - Search queries\n - Summarized answers\n - Supporting result excerpts\nPurpose:\n - Understand how services work\n - Identify common problems and best practices\n - Add factual depth and authority\n2) MARKET RESEARCH INSIGHTS (AI ASSISTANT):-\nConceptual and niche-level research produced by an AI researcher\nPurpose:\n - Provide high-level understanding of the service domain\n - Strengthen explanations and clarity\n - Improve professional credibility\n3) SERVICE PAGE OUTLINE (HTML STRUCTURE):-\nText-based outline of the existing service page structure\nIncludes:\n - Section hierarchy\n - Headings\n - Image placeholders\nPurpose:\n - Define layout, order, and structure constraints\n4) TARGET SERVICES:-\n - Exact list of services offered by the client\n - These services define the absolute scope of the page\n5) ADDITIONAL NOTES:-\n - Client-provided instructions or constraints\n - May include tone, positioning, or emphasis\n6) BRAND & BUSINESS DATA:-\n - Brand tone\n - CTA preferences\n - Writing guidelines\n - Target location\n - Contact or trust-related information\n\n## Core Responsibilities:\n1) Write clear, authoritative, user-focused service page content\n2) Use research insights to reflect real customer concerns, language, and expectations\n3) Maintain structural discipline while improving clarity and persuasion\n4) Produce clean, readable, Responsive, Functional, SEO-friendly HTML\n\n## Structure & Layout Rules:\n1) You MUST follow the provided service page outline\n2) Maintain at least 70% similarity to the original outline in:\n - Section order\n - Section hierarchy\n - Overall layout intent\n3) You MAY:\n - Improve wording and flow\n - Clarify headings and subheadings\n - Strengthen CTAs\n4) You MUST NOT:\n - Remove sections\n - Invent new sections\n - Reorder sections drastically\n - Introduce services not provided by the client\n\n## Content Rules:\n1) Use Travily insights to:\n - Add authority and factual grounding\n - Explain how services work\n - Reinforce trust and best practices\n2) Use AI research insights to:\n - Strengthen conceptual understanding\n - Improve clarity and depth\n3) Maintain the brand tone exactly as provided\n4) Follow all compliance and writing guidelines\n5) Do NOT exaggerate results or guarantees\n\n## Language & Attribution Restrictions (CRITICAL):\n- Do NOT mention or reference:\n  - Reddit\n  - Google\n  - Travily\n  - AI\n  - Research sources\n  - “Users say”, “according to Google”, or similar phrases\n- Do NOT explain where insights came from\n- Write as first-party expert knowledge, not sourced commentary\n\n## Natural Writing Rules:\n- Do NOT use hyphenated bullet-style phrasing inside sentences\n- Avoid excessive use of dashes (– or -) in paragraph text\n- Write in natural, human service-business prose\n- Paragraphs must read like professional website copy, not summaries or notes\n- Do NOT use list-style cadence inside paragraphs\n\n## AI Artifact Prevention:\n- Do NOT use phrases that signal AI writing, including:\n  - “In today’s world”\n  - “It’s important to note”\n  - “One thing to consider”\n  - “As mentioned above”\n  - “Based on the research”\n- Avoid overly generic or templated transitions\n- Vary sentence length and structure naturally\n\n## Image Handling Rules: \nWhere the outline includes images:\n - Insert valid <img> tags\n - Use placeholder relevant image URLs\n - Use the relevant unsplash image urls\n - Do NOT omit image elements\n - placeholder must describe what image should represent\n\n## Styling Instructions:\n- Include a <style> block inside the <head> section\n- Define CSS for all classes used in the HTML\n- Use plain CSS only (no Tailwind, no Bootstrap, no external frameworks)\n- Styles must support:\n  - Professional service-page layout\n  - Clear visual hierarchy\n  - Mobile responsiveness\n  - Conversion-focused CTAs\n- Do NOT reference external CSS files\n- The CSS must be responsive (Important)\n- The CSS must be correct and applied on all sections\n- All components must be responsive\n\n## CRITICAL OUTPUT RULES:\n- You MUST return a single valid JSON object\n- The JSON object MUST contain exactly one key named \"html\"\n- The value of \"html\" MUST be a string\n- That string MUST contain the complete HTML document\n- Do NOT use markdown\n- Do NOT use code blocks\n- Do NOT include explanations\n- Do NOT include comments\n- Do NOT include any text outside the JSON object\n- Do NOT include the comments in the code\n\n## Quality Standard:\n1) Your output should read like it was written by:\n - A professional service-based business\n - An expert who understands the industry deeply\n - A conversion-focused yet trustworthy brand\n - A senior software engineer\n2) The final result should be suitable for direct publishing.\n3) The CSS must be responsive, good and correct."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2912,
+        3392
+      ],
+      "id": "2e58ac59-65f9-4500-9393-6dab74e9f278",
+      "name": "Make Service Page HTML & CSS",
+      "executeOnce": false,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        4624
+      ],
+      "id": "4e3cc9aa-9b2a-4002-ad6a-51d2d8489e48",
+      "name": "OpenRouter Gpt5",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here is the complete service page HTML.\n\nAnalyze all images in the HTML and generate AI image generation prompts based on the surrounding content and section context.\n\nThe prompts will be used to generate realistic images for this service page.\n\n## HTML:\n{{ $('Add JavaScript to the Service Page').item.json.output.html }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are a senior visual content planner and image prompt strategist for service-based websites.\n\n## Task:\nAnalyze a complete service page HTML document and determine all image requirements needed for the page.\n\nYou do NOT generate images.\nYou do NOT modify the HTML.\nYou do NOT explain your reasoning.\n\nYour job is to:\n1) Identify every <img> element or image placeholder in the HTML\n2) Understand the section context where each image appears\n3) Determine what that image is intended to visually represent\n4) Generate:\n   - A precise, high-quality AI image generation prompt. Also mention the image dimensions in the prompt at the end. You can identify the dimensions by analyzing the HTML, that which section will need how much dimension of image.\n   - A short, descriptive image file name for storage\n5) Extract the exact src attribute value for each <img> as it appears in the HTML\n\nThese outputs will be used downstream to generate and store production images.\n\n## Input:\n- Full HTML of a service page\n- The HTML already contains <img> tags or placeholders\n- Each image appears within a specific section and content context\n\n## Image Analysis Rules:\n- Count ALL images present in the HTML\n- Preserve the original order of images as they appear in the document\n- Do NOT invent extra images\n- Do NOT remove images\n- Do NOT rewrite or alter text content\n- Do NOT add new sections\n\n## Image Prompt Rules:\nEach image prompt MUST:\n- Clearly describe the subject, environment, and intent\n- Match the section’s message and service context\n- Be suitable for realistic AI image generation\n- Avoid brand names, logos, or copyrighted visuals\n- Avoid text overlays inside images\n- Be written as a descriptive generation prompt, not a sentence fragment\n\n## Image Naming Rules (CRITICAL):\nEach image MUST include an image_name that:\n- Is lowercase only\n- Uses hyphens instead of spaces\n- Is short and descriptive (3–5 words max)\n- Clearly represents the image content or section purpose\n- Is file-safe (letters, numbers, hyphens only)\n- Ends with `.png`\n- Is deterministic (no timestamps, no randomness)\n\n## Style Guidelines for Image Prompts:\n- Photorealistic\n- Professional, commercial-quality\n- Natural lighting\n- Clean, modern aesthetic\n- Suitable for a high-trust service business website\n- Neutral expressions unless context requires otherwise\n- No dramatic filters or stylized art unless explicitly implied by the content\n\n## CRITICAL OUTPUT RULES:\n- You MUST return a single valid JSON object\n- The JSON must contain:\n  - total_images (number)\n  - images (array)\n\n- Each image object MUST include:\n  - index (starting from 1)\n  - section_context (short description of the section)\n  - image_purpose (what the image communicates)\n  - image_name (final file name for storage)\n  - image_prompt (final AI generation prompt)\n - original_src (string) — exact image source from the HTML\n\n- Do NOT use markdown\n- Do NOT include explanations\n- Do NOT include comments\n- Do NOT include any text outside the JSON object"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1200,
+        4432
+      ],
+      "id": "f9476aab-4934-454e-b995-d81f8da5627a",
+      "name": "Image Prompt Generator",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.output.images.map(img => ({\n  json: {\n    index: img.index,\n    image_name: img.image_name,\n    original_src: $input.first().json.output.images[0].original_src,\n    prompt: img.image_prompt,\n    section_context: img.section_context\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        4432
+      ],
+      "id": "3f361a81-ad8f-4302-ac4a-d30b2822295f",
+      "name": "Format Prompts",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Step 7. Generate the Images\n - First give the HTML to the agent and he will generate the prompts for the images\n - Then format those prompts\n - Then give those prompts to the agent that will geneate the actual images\n - Then save the image in images folder\n - After generating and saving all the images add a log in the google sheet\n - Then send email to the team",
+        "height": 608,
+        "width": 1472,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1136,
+        4192
+      ],
+      "typeVersion": 1,
+      "id": "2f1b280f-3e4b-4ecb-b2ea-f5f5645aa9ea",
+      "name": "Sticky Note15"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1744,
+        4432
+      ],
+      "id": "a49de2e1-9609-44b1-9b25-7dce71b0071c",
+      "name": "Loop Over Items",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "=Service_Page_{{ $('Map Fillout Fields').last().json.client_id || 'CLIENT' }}_{{ Date.now() }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "root",
+          "cachedResultName": "/ (Root folder)"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4512,
+        3680
+      ],
+      "id": "1b9dc1a4-dcf7-4f73-8f37-c81eb3bd03e3",
+      "name": "Create Folder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "h5MdNbx2RcFLk78Z",
+          "name": "Google Drive account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "createFromText",
+        "content": "={{ $('Format JavaScript Agent Response').last().json.html }}",
+        "name": "index.html",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Create Folder').item.json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4704,
+        3680
+      ],
+      "id": "4dcb2917-44a5-49b2-98d0-0adcc9907c77",
+      "name": "Create HTML File",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "h5MdNbx2RcFLk78Z",
+          "name": "Google Drive account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "models/imagen-4.0-generate-001",
+          "mode": "list",
+          "cachedResultName": "models/imagen-4.0-generate-001"
+        },
+        "prompt": "=## Prompt:\n{{ $json.prompt }}\n\n## Rules:\n - Generate a photorealistic image only\n - Do NOT include any text, letters, numbers, words, captions, signage, labels, UI elements, screens, posters, banners, watermarks, logos, or written language of any kind\n - The image must contain only real-world visual elements\n - No typography, no symbols, no icons, no charts\n - Natural lighting, realistic materials, modern professional aesthetic\n - No stylized art, illustrations, or graphic design elements\n - The image must be suitable for a high-trust service business website",
+        "options": {
+          "sampleCount": 1,
+          "binaryPropertyOutput": "=data"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        4592
+      ],
+      "id": "9872a7a0-0cc4-4f9b-8550-bad7c8b15952",
+      "name": "Generate an image",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "vaylmfAcrKGLLN2E",
+          "name": "N8N Workflows"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Loop Over Items').item.json.image_name.split(\".\")[0] || $('Loop Over Items').item.json.image_name }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Create Images Folder').last().json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2192,
+        4592
+      ],
+      "id": "5dcda02f-1b80-44c8-a6ea-52b6a18db84b",
+      "name": "Save Image",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "kqDGC0MPzaaiessQ",
+          "name": "Afaq Google Drive"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc",
+          "mode": "list",
+          "cachedResultName": "Service Page Logger",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Message": "Sercvice Page Generated Successfully",
+            "Client ID": "={{ $('On form submission').last().json.client_id }}",
+            "Created Date": "={{ new Date().toLocaleString('en-GB', {\n  day: '2-digit',\n  month: '2-digit',\n  year: 'numeric',\n  hour: '2-digit',\n  minute: '2-digit',\n  hour12: false\n}).replace(',', ' -') }}\n",
+            "Google Drive Link": "=https://drive.google.com/drive/folders/{{ $('Create Folder').last().json.id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Client ID",
+              "displayName": "Client ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Google Drive Link",
+              "displayName": "Google Drive Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Created Date",
+              "displayName": "Created Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2016,
+        4336
+      ],
+      "id": "6ec39842-79ba-43f5-b5d4-5cc06fd17e53",
+      "name": "Add Log",
+      "executeOnce": false,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bKVWYvAIqtvWBpGr",
+          "name": "Afaw Google Sheet"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2384,
+        4592
+      ],
+      "id": "17f53596-d3de-4bbf-8266-b4d026c01f89",
+      "name": "Wait",
+      "webhookId": "270e411c-497a-4dda-a6b8-f125e017b124",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "subject": "=Service Page Generation",
+        "emailType": "text",
+        "message": "=The service page for the client has been generated successfully.\n\nBelow are the details:\nClient ID: {{ $json['Client ID'] }}\nGoogle Drive Link: {{ $json['Google Drive Link'] }}\n\nYou can check the log here:\nhttps://docs.google.com/spreadsheets/d/1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc/edit?gid=0#gid=0",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Automation Message"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2208,
+        4336
+      ],
+      "id": "d978b9cc-2172-4864-9858-7275b4ed6e7a",
+      "name": "Send a message",
+      "webhookId": "1d29f566-319d-4f15-843c-1ecd4eb2b653",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lubYqZvqcIjo10Xv",
+          "name": "christian@patientclicks.ca email"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"total_images\": {\n      \"type\": \"number\",\n      \"description\": \"Total number of images found in the HTML\"\n    },\n    \"images\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"index\": {\n            \"type\": \"number\",\n            \"description\": \"Sequential index of the image as it appears in the HTML\"\n          },\n          \"section_context\": {\n            \"type\": \"string\",\n            \"description\": \"Short description of the section where the image appears\"\n          },\n          \"image_purpose\": {\n            \"type\": \"string\",\n            \"description\": \"What the image is intended to visually communicate\"\n          },\n          \"original_src\": {\n            \"type\": \"string\",\n            \"description\": \"Exact src attribute value of the image as it appears in the HTML\"\n          },\n          \"image_name\": {\n            \"type\": \"string\",\n            \"description\": \"Short, lowercase, hyphenated PNG file name representing the image\"\n          },\n          \"image_prompt\": {\n            \"type\": \"string\",\n            \"description\": \"AI image generation prompt including image dimensions at the end\"\n          }\n        },\n        \"required\": [\n          \"index\",\n          \"section_context\",\n          \"image_purpose\",\n          \"original_src\",\n          \"image_name\",\n          \"image_prompt\"\n        ]\n      }\n    }\n  },\n  \"required\": [\"total_images\", \"images\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        4624
+      ],
+      "id": "619178df-ace3-4a83-9bb7-d1984f883876",
+      "name": "Structured Output Parser for Image Prompts",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        4000
+      ],
+      "id": "ae8c4f0f-518f-4f9f-8f3a-8943283c580f",
+      "name": "OpenRouter GPT-40-mini",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## HTML:\n{{ $('Add JavaScript to the Service Page').last().json.output.html }}\n\n## Replacments:\n{{ JSON.stringify($json.paths.map(item => ({\noriginal_src: item.original_src,\nnew_src: item.new_src\n}))) }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an expert HTML modification agent.\n\n## Task:\nYou will receive:\n1) A complete HTML document\n2) A list of image source replacements, where each replacement contains:\n   - original_src (existing image src in the HTML)\n   - new_src (new relative image path to use)\n\nYour task is to update the HTML by replacing image src attributes.\n\n## Rules (CRITICAL):\n- Replace ONLY <img> src attributes that EXACTLY match an original_src value provided\n- Replace them with the corresponding new_src value\n- Do NOT modify any other <img> elements\n- Do NOT modify images that are not listed in the replacements\n- Do NOT add, remove, or reorder any HTML elements\n- Do NOT change formatting, indentation, whitespace, or line breaks\n- Do NOT modify text content, attributes other than src, or inline styles\n- Do NOT explain your work\n\n## Output:\n- Return the FULL updated HTML document\n- Return only the HTML\n- No comments\n- No explanations\n- No markdown"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        3824
+      ],
+      "id": "d81e76f7-eea0-4a39-8d71-2780df5bece4",
+      "name": "Image Path Replacer",
+      "executeOnce": false,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"html\": {\n      \"type\": \"string\",\n      \"description\": \"The full updated HTML document with only the specified image src paths replaced\"\n    }\n  },\n  \"required\": [\"html\"]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1584,
+        4000
+      ],
+      "id": "aa9a55b3-0460-4997-bc7c-b1cdac90d8d9",
+      "name": "Structured Output Parser for Image Replacer",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $items();\n\nreturn [\n  {\n    json: {\n      paths: items.map(item => ({\n        original_src: item.json.original_src,\n        new_src: \"images/\" + item.json.image_name\n      }))\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        3824
+      ],
+      "id": "79f9a758-7144-4e3b-b757-8017cd944f01",
+      "name": "Make Path for replacements",
+      "executeOnce": false,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Create HTML File').last().json.id }}",
+          "mode": "id"
+        },
+        "changeFileContent": true,
+        "inputDataFieldName": "=data",
+        "newUpdatedFileName": "index.html",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2016,
+        3824
+      ],
+      "id": "778d052c-6c88-4db2-8774-03bc736b3625",
+      "name": "Update HTML File",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "kqDGC0MPzaaiessQ",
+          "name": "Afaq Google Drive"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "output.html",
+        "binaryPropertyName": "=data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        3824
+      ],
+      "id": "819d9605-a8f9-4fba-afe3-e86518ab14a6",
+      "name": "Convert to File",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Change image paths and then update the HTML",
+        "height": 464,
+        "width": 1104
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1136,
+        3696
+      ],
+      "typeVersion": 1,
+      "id": "ca6d4893-2ac1-41ca-8410-6179df7ddd8a",
+      "name": "Sticky Note17"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc",
+          "mode": "list",
+          "cachedResultName": "Service Page Logger",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Message": "Sercvice Page Generated Successfully",
+            "Client ID": "={{ $('Map Fillout Fields').last().json.client_id }}",
+            "Created Date": "={{ new Date().toLocaleString('en-GB', {\n  day: '2-digit',\n  month: '2-digit',\n  year: 'numeric',\n  hour: '2-digit',\n  minute: '2-digit',\n  hour12: false\n}).replace(',', ' -') }}\n",
+            "Google Drive Link": "==https://docs.google.com/document/d/{{ $json.documentId || $json.id }}/edit"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Client ID",
+              "displayName": "Client ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Google Drive Link",
+              "displayName": "Google Drive Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Created Date",
+              "displayName": "Created Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8656,
+        -192
+      ],
+      "id": "f58fa474-0b24-4edd-8be6-aac4e0fd8664",
+      "name": "Logger",
+      "executeOnce": false,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bKVWYvAIqtvWBpGr",
+          "name": "Afaw Google Sheet"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "content@patientclicks.ca",
+        "subject": "=✅ Service Page Content Brief Ready - {{ $('Map Fillout Fields').last().json.client_id }}",
+        "message": "=<p>Hi Christian,</p>\n\n<p>A new service page content brief has been generated successfully!</p>\n\n<hr>\n\n<p><strong>Details:</strong></p>\n<ul>\n<li><strong>Client ID:</strong> {{ $('Map Fillout Fields').last().json.client_id }}</li>\n<li><strong>Brand Name:</strong> {{ $('Get Client Profile Data').last().json.brand_name }}</li>\n<li><strong>Target Service:</strong> {{ $('Map Fillout Fields').last().json['Target Service'] }}</li>\n<li><strong>Target Location:</strong> {{ $('Map Fillout Fields').last().json['Target Location'] }}</li>\n<li><strong>Total Sections:</strong> {{ $('Format Content Brief for Google Doc').last().json.total_sections || '15' }}\n</li>\n</ul>\n\n<hr>\n\n<p><strong>📄 Content Brief:</strong><br>\n<a href=\"https://docs.google.com/document/d/{{ $('Create Google Doc').last().json.id }}\">\n  Open Google Doc →\n</a>\n</p>\n\n<p><strong>📊 Logger:</strong><br>\n<a href=\"https://docs.google.com/spreadsheets/d/1xH7wOuT4Ymv3F4sW5Zuj4S9_0JQA8qBqDeb6chwojHc/edit?gid=0#gid=0\">\n  View Service Page Logger →\n</a>\n</p>\n\n<hr>\n\n<p>The content brief includes:</p>\n<ul>\n<li>✅ SEO metadata (title, meta description, keywords)</li>\n<li>✅ Compliance review summary</li>\n<li>✅ All content sections with word counts</li>\n<li>✅ Image recommendations (Imagen 3 prompts + Unsplash fallbacks)</li>\n</ul>\n\n<p>Ready for your review!</p>",
+        "options": {
+          "appendAttribution": false,
+          "ccList": "christian@patientclicks.ca",
+          "senderName": "PatientClicks"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        8880,
+        -192
+      ],
+      "id": "8d0a700e-eda3-426c-b30c-4f10e8964144",
+      "name": "Send Email to Team",
+      "webhookId": "1d29f566-319d-4f15-843c-1ecd4eb2b653",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lubYqZvqcIjo10Xv",
+          "name": "christian@patientclicks.ca email"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        7024,
+        64
+      ],
+      "id": "34303d45-54eb-4025-8330-1185fc170cba",
+      "name": "OpenRouter Gpt 5.2 Pro",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = JSON.parse($input.first().json.output);\nreturn [\n  {\n    json: {\n      html: parsed.html\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        3712
+      ],
+      "id": "3ba92323-62b8-4e13-8f68-59a17234ddca",
+      "name": "Format Agent Response",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = JSON.parse($input.first().json.output);\nreturn [\n  {\n    json: {\n      html: parsed.html\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3712,
+        3696
+      ],
+      "id": "e13b3bb3-67a7-4d5f-bdbb-27a1e1de6849",
+      "name": "Format Image Placement Agent Response",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = JSON.parse($input.first().json.output);\nreturn [\n  {\n    json: {\n      html: parsed.html\n    }\n  }\n]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4208,
+        3680
+      ],
+      "id": "2c500ba5-2ae5-4cae-a2a2-e064ca723805",
+      "name": "Format JavaScript Agent Response",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-sonnet-4",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2912,
+        -336
+      ],
+      "id": "9c4208d2-ffba-4605-95f9-0458663d8d18",
+      "name": "Claude Sonnet 4",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## Target Service:\n{{ $('Map Fillout Fields').last().json['Target Service'] }}\n\n## Target Location:\n{{ $('Get Client Profile Data').last().json.target_location }}\n\n## Clinic/Business Name:\n{{ $('Get Client Profile Data').last().json.brand_name }}\n\n## Additional Notes:\n{{ $('Map Fillout Fields').last().json['Additional Notes'] }}\n\n## Clinician Name (if applicable):\n{{ $('Map Fillout Fields').last().json['Clinician Name (Optional)'] || 'Not specified' }}\n\nBased on this information, generate a detailed target audience persona for this service page.",
+        "options": {
+          "systemMessage": "=You are an expert market research strategist specializing in healthcare and wellness services.\n\n## Task:\nGenerate a comprehensive target audience persona for a service page. This persona will be used to guide content writing, ensuring the page speaks directly to the people most likely to seek this service.\n\n## You MUST include the following sections:\n\n### 1. Demographics\n- Age range\n- Gender distribution (use inclusive language)\n- Location relevance\n- Income/insurance considerations\n- Life stage (e.g., new parents, seniors, athletes)\n\n### 2. Psychographics\n- Values and beliefs about health/wellness\n- Lifestyle characteristics\n- Decision-making style\n- Information-seeking behavior\n\n### 3. Pain Points\n- Physical symptoms or conditions they experience\n- Emotional frustrations related to their condition\n- Previous failed solutions or treatments\n- Barriers to seeking care (cost, time, embarrassment, etc.)\n\n### 4. Motivations\n- What outcome are they hoping for?\n- What would success look like for them?\n- What triggers them to finally take action?\n\n### 5. Objections\n- Common hesitations about this type of service\n- Trust concerns\n- Cost/value concerns\n- Time or convenience concerns\n\n### 6. Search Intent & Long-Tail Queries\n- What questions do they type into Google?\n- What phrases do they use to describe their problem?\n- List 8-10 realistic long-tail search queries they might use\n\n## Rules:\n1) Use inclusive language (e.g., \"people with\" instead of \"women who\" unless the service is gender-specific)\n2) Keep all claims factual and realistic\n3) Base the persona on the specific service and location provided\n4) Do NOT use generic filler content\n5) Make it specific enough to guide real content decisions\n\n## Output Format:\nReturn the persona as structured text with clear section headings. Do not use JSON format."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2880,
+        -528
+      ],
+      "id": "340cff1d-ecff-4a20-b872-7f2260260434",
+      "name": "Generate Target Audience Persona",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## CONTENT BRIEF TO REVIEW\n\n{{ $('SEO/GEO/AEO Optimization Agent').last().json.output }}\n\n---\n\n## CLIENT COMPLIANCE RULES\n\n{{ $('Get Client Profile Data').last().json.compliance_rules }}\n\n---\n\nReview the content brief above for compliance violations. Fix any problematic language and return the corrected content brief as valid JSON.",
+        "options": {
+          "systemMessage": "=You are a healthcare content compliance specialist. Your role is to review service page content briefs and correct any language that violates healthcare advertising regulations or client-specific compliance rules.\n\n## Task\nReview the provided content brief (JSON format) and rewrite any text that violates compliance rules. You must preserve ALL structure - only modify the text content where violations occur.\n\n## INPUT FORMAT\nYou receive a JSON content brief with:\n- target_service, target_location, total_sections, total_word_count\n- sections array with: section_id, section_name, section_type, content, word_count, notes, seo_notes\n- seo_metadata object\n\n## BANNED WORDS (must be replaced)\n\n| Banned Word | Replacement Options |\n|-------------|---------------------|\n| \"expert\" | \"experienced\", \"trained\", \"qualified\" |\n| \"specialist\" | \"therapist\", \"practitioner\", \"professional\" (unless licensed medical specialty) |\n| \"best\" | \"dedicated\", \"comprehensive\", \"highly rated\" |\n| \"top\" | \"experienced\", \"leading\", or remove |\n| \"#1\" / \"number one\" | Remove entirely |\n| \"guarantee\" | \"aim to\", \"designed to\", \"committed to\" |\n| \"cure\" | \"help manage\", \"support recovery\", \"address\" |\n| \"heal\" | \"promote healing\", \"support the body's natural healing process\" |\n| \"fix\" | \"help address\", \"work to improve\", \"support\" |\n| \"eliminate\" | \"help reduce\", \"work to minimize\", \"address\" |\n\n## BANNED CLAIM TYPES\n\n1) **Absolute claims** - Rewrite these:\n   - \"will eliminate your pain\" → \"designed to help reduce your discomfort\"\n   - \"100% effective\" → \"many patients experience positive results\"\n   - \"always works\" → \"has helped many patients\"\n\n2) **Diagnosis claims** - Remove any language suggesting the service can diagnose conditions\n\n3) **Cure/treatment claims** - Reframe:\n   - \"cures back pain\" → \"designed to support relief from back pain\"\n   - \"treats sciatica\" → \"addresses symptoms associated with sciatica\"\n\n4) **Superiority claims** - Remove comparisons claiming to be better than other providers\n\n5) **Outcome guarantees** - Reframe:\n   - \"You will feel better\" → \"Many patients report feeling improvement\"\n   - \"Guaranteed results\" → \"Many clients experience positive outcomes\"\n\n## COMPLIANT PHRASES TO USE\n\n- \"Many patients report...\"\n- \"Designed to help...\"\n- \"Our approach aims to...\"\n- \"May help with...\"\n- \"Can assist in...\"\n- \"Works to support...\"\n- \"Committed to helping you...\"\n- \"Experienced in addressing...\"\n\n## RULES\n1) Preserve ALL JSON structure exactly (section_id, section_name, section_type, seo_metadata, etc.)\n2) Only modify the \"content\" field text where violations occur\n3) Preserve approximate word counts (stay within 10% of original)\n4) Do NOT add new sections or remove sections\n5) Keep rewrites natural and human-sounding - don't make it obvious text was edited for compliance\n6) If client-specific compliance rules (provided above) conflict with universal rules, follow client-specific rules\n7) Add a \"compliance_notes\" field to each section documenting what was changed (or \"No changes needed\")\n8) Preserve seo_metadata unchanged unless it contains violations\n\n## OUTPUT FORMAT\nReturn valid JSON matching the required schema. Preserve ALL section structure exactly as provided in the input.\n\nIMPORTANT: Your response must be wrapped in a \"compliant_content\" object like this:\n{\n  \"compliant_content\": {\n    \"target_service\": \"...\",\n    \"target_location\": \"...\",\n    \"total_sections\": 15,\n    \"total_word_count\": 959,\n    \"sections\": [...],\n    \"seo_metadata\": {...},\n    \"compliance_summary\": {\n      \"total_violations_found\": 3,\n      \"violations_corrected\": [\"description of fix 1\", \"description of fix 2\"]\n    }\n  }\n}\n\nCRITICAL: Return raw JSON only. Do NOT wrap your response in markdown code fences or backticks."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        6608,
+        -192
+      ],
+      "id": "cbfe1ac1-5171-443b-93e0-d896000b50e5",
+      "name": "Compliance Review Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        6608,
+        -32
+      ],
+      "id": "6892bdf0-1f28-4bcd-a61c-403f3e4190ec",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = JSON.parse($input.first().json.output);\nreturn [\n  {\n    json: {\n      html: parsed.html\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4784,
+        3376
+      ],
+      "id": "20753558-ab9c-4133-937d-27c182b13689",
+      "name": "Format Compliance Agent Response",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## CONTENT BRIEF TO OPTIMIZE\n\n{{ JSON.stringify($('Generate Service Page Content').last().json.output.generated_content, null, 2) }}\n\n---\n\n## TARGET SERVICE\n{{ $('Map Fillout Fields').last().json['Target Service'] }}\n\n## TARGET LOCATION\n{{ $('Get Client Profile Data').last().json.target_location }}\n\n## BRAND NAME\n{{ $('Get Client Profile Data').last().json.brand_name }}\n\n## TARGET KEYWORD\n{{ $('Generate Target Keyword').last().json.target_keyword }}\n\n---\n\n## COMPETITOR ANALYSIS\n\n{{ $('Format Competitor Analysis').last().json.competitor_analysis }}\n\n### Competitor URLs Analyzed:\n1. {{ $('Format Competitor Analysis').last().json.competitor_1_title }} - {{ $('Format Competitor Analysis').last().json.competitor_1_url }}\n2. {{ $('Format Competitor Analysis').last().json.competitor_2_title }} - {{ $('Format Competitor Analysis').last().json.competitor_2_url }}\n3. {{ $('Format Competitor Analysis').last().json.competitor_3_title }} - {{ $('Format Competitor Analysis').last().json.competitor_3_url }}\n\n---\n\nReview and enhance the content brief above for SEO, GEO, and AEO optimization. Use the competitor analysis to identify content gaps, keyword opportunities, and structural improvements. Return the enhanced content brief as valid JSON matching the required schema.",
+        "options": {
+          "systemMessage": "=You are a senior SEO strategist specializing in healthcare and local service businesses. Your role is to enhance service page content briefs for maximum visibility in traditional search engines, AI-powered search (GEO), and answer engines (AEO).\n\n## Task\nReview the provided content brief (JSON format with sections, word counts, and content) and enhance it for search optimization. You will NOT modify the structure - only enhance the content within each section and add SEO metadata.\n\n## CRITICAL CONSTRAINTS - DO NOT VIOLATE\n\n### Structure Preservation (MANDATORY)\n- Do NOT add new sections\n- Do NOT remove sections\n- Do NOT merge sections\n- Do NOT split sections\n- Do NOT reorder sections\n- Do NOT change section_id, section_name, or section_type\n- Do NOT change the number of FAQ questions\n- Do NOT change the number of bullet points or list items\n- ONLY modify the text content within each section\n\n### Word Count Preservation\n- Stay within 15% of the original word count for each section\n- If a section is 100 words, your version should be 85-115 words\n- Do NOT significantly expand or condense sections\n\n## INPUT FORMAT\nYou receive a JSON content brief with:\n- target_service, target_location, total_sections, total_word_count\n- sections array with: section_id, section_name, section_type, content, word_count, notes\n\n## SEO ENHANCEMENTS TO APPLY (within existing structure)\n\n### 1. Keyword Integration\nFor each section's content:\n- Ensure target service keyword appears naturally (not stuffed)\n- Include location naturally where appropriate\n- Add semantic variations and related terms\n- Verify H1/hero section has primary keyword\n\n### 2. E-E-A-T Signals\nAdd to relevant sections:\n- Experience indicators (years of practice, patients helped)\n- Expertise mentions (credentials, training, certifications)\n- Trust signals (professional associations, treatment approach)\n- Keep additions realistic - use placeholders like [X years] if specific data unavailable\n\n### 3. GEO Optimization (for AI Search)\nEnhance content to be citation-worthy:\n- Add specific, factual statements AI systems would quote\n- Include treatment duration ranges (e.g., \"typically 4-8 sessions\")\n- Add process explanations (e.g., \"The treatment involves three phases...\")\n- Create clear, quotable definitions for key terms\n\n### 4. AEO Optimization (for Answer Engines)\nFor FAQ sections:\n- Ensure questions match \"People Also Ask\" format\n- Start answers with direct responses\n- Keep answers concise (2-4 sentences)\n- Do NOT add or remove FAQ questions - only improve existing ones\n\nFor other sections:\n- Add declarative sentences that directly answer implied questions\n- Include definition-style content (40-60 words) for featured snippets\n\n### 5. Local SEO\n- Verify location appears in key sections (hero, intro, CTA)\n- Add neighborhood/area references where natural\n- Include service area mentions\n\n### 6. Competitor-Driven Optimization\nUse the competitor analysis to:\n- Identify wording improvements based on competitor language\n- Match keyword density of top competitors\n- Include E-E-A-T signals competitors are using\n- Address topics competitors cover (within existing sections)\n- Find keyword opportunities from competitor H2/H3 structure\n- Do NOT add new sections based on competitors - only improve existing content\n\n## SEO METADATA TO ADD\nAdd a new \"seo_metadata\" object with:\n- recommended_title: \"[Service] in [Location] | [Brand]\" (50-60 chars)\n- meta_description: Compelling description (150-160 chars)\n- recommended_slug: /services/[service-slug]-[location-slug]/\n- primary_keyword: The main target keyword\n- secondary_keywords: Array of 5-8 related terms\n- schema_types: [\"LocalBusiness\", \"Service\", \"FAQPage\"] as applicable\n\n## COMPETITOR INSIGHTS TO ADD\nAdd a \"competitor_insights\" object with:\n- content_gaps_addressed: Array of gaps addressed within existing sections\n- structural_improvements: Wording/keyword improvements made based on competitors\n- differentiation_notes: How our content now differentiates from competitors\n\n## RULES\n1) Preserve ALL section structure (section_id, section_name, section_type, section order)\n2) Preserve approximate word counts (stay within 15% of original)\n3) Do NOT add new sections\n4) Do NOT remove sections\n5) Do NOT change the layout or organization\n6) Do NOT use banned healthcare words: \"expert\", \"specialist\", \"best\", \"guarantee\", \"cure\", \"#1\"\n7) Keep enhancements natural and human-readable\n8) Do NOT invent specific statistics - use realistic ranges or [PLACEHOLDER] format\n9) Only modify the TEXT CONTENT - never the structure\n\n## OUTPUT FORMAT\nReturn valid JSON matching the required schema. The sections array must have the SAME length and order as the input.\n\nCRITICAL: Return raw JSON only. Do NOT wrap your response in markdown code fences or backticks."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        5840,
+        -144
+      ],
+      "id": "206355e6-9a22-4005-aa68-3a15248592ff",
+      "name": "SEO/GEO/AEO Optimization Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = JSON.parse($input.first().json.output);\nreturn [\n  {\n    json: {\n      html: parsed.html\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4544,
+        3376
+      ],
+      "id": "e43cfd45-bc12-4f57-9946-196df29974da",
+      "name": "Format SEO Agent Response",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const service = $('Map Fillout Fields').last().json['Target Service'];\nconst location = $('Map Fillout Fields').last().json['Target Location'];\n\n// Clean up the inputs\nconst cleanService = service.trim();\nconst cleanLocation = location.trim();\n\n// Create target keyword (e.g., \"Pelvic Floor Physiotherapy Brampton\")\nconst targetKeyword = `${cleanService} ${cleanLocation}`;\n\n// Also create variations that might be useful downstream\nconst targetKeywordLower = targetKeyword.toLowerCase();\n\nreturn [\n  {\n    json: {\n      target_keyword: targetKeyword,\n      target_keyword_lower: targetKeywordLower,\n      target_service: cleanService,\n      target_location: cleanLocation\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        -384
+      ],
+      "id": "191f48f6-1137-4d06-9d52-b47a7e93e7e4",
+      "name": "Generate Target Keyword"
+    },
+    {
+      "parameters": {
+        "q": "={{ $('Generate Target Keyword').last().json.target_keyword }}",
+        "location": "={{ $('Map Fillout Fields').last().json['Target Location'] }}, Canada",
+        "additionalFields": {
+          "google_domain": "google.ca",
+          "hl": "en",
+          "num": "10"
+        },
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-serpapi.serpApi",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        144
+      ],
+      "id": "d074a0c2-9213-4415-a66e-943dc0cafe83",
+      "name": "Search Local Competitors",
+      "credentials": {
+        "serpApi": {
+          "id": "9OoNdIEyQAuzVjjq",
+          "name": "SerpAPI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const serpResults = $input.first().json;\n\n// Extract organic results from SerpAPI response\nconst organicResults = serpResults.organic_results || [];\n\n// Get top 3 organic URLs (excluding ads, local pack, etc.)\nconst top3 = organicResults.slice(0, 3).map((result, index) => ({\n  position: index + 1,\n  url: result.link,\n  title: result.title,\n  snippet: result.snippet || ''\n}));\n\n// Return each URL as a separate item for downstream processing\n// But also include all 3 in each item so Firecrawl nodes can access by index\nreturn [\n  {\n    json: {\n      competitor_1_url: top3[0]?.url || null,\n      competitor_1_title: top3[0]?.title || null,\n      competitor_2_url: top3[1]?.url || null,\n      competitor_2_title: top3[1]?.title || null,\n      competitor_3_url: top3[2]?.url || null,\n      competitor_3_title: top3[2]?.title || null,\n      all_competitors: top3,\n      total_found: top3.length\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        144
+      ],
+      "id": "f0bb43f4-ec50-407a-847b-008e3e48db5b",
+      "name": "Extract Top 3 Competitor URLs"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3552,
+        240
+      ],
+      "id": "a80abda9-6989-4d0f-af78-949b57d5adc9",
+      "name": "Merge Competitor Pages"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.competitor_content }}\n\nPlease analyze these competitor pages and provide the competitive analysis as outlined in your instructions.\n",
+        "options": {
+          "systemMessage": "=You are an expert SEO and competitive content analyst specializing in local service businesses.\n\n## Task:\nAnalyze the scraped HTML content from the top 3 ranking competitor pages for a target keyword. Extract actionable insights that will help create a service page that can outrank these competitors.\n\n## You MUST analyze and report on the following for EACH competitor:\n\n### 1. Content Structure\n- H1 tag (exact text)\n- H2 tags (list all)\n- H3 tags (list all)\n- Overall heading hierarchy quality\n\n### 2. Content Depth\n- Estimated word count\n- Number of paragraphs\n- Content sections identified\n\n### 3. Local SEO Signals\n- Location mentions (city, neighborhood, area)\n- Address presence\n- Service area mentions\n- Local landmarks or references\n\n### 4. E-E-A-T Signals\n- Credentials mentioned (certifications, qualifications)\n- Experience indicators (years in practice, patients helped)\n- Trust signals (associations, awards, reviews mentioned)\n- Author/practitioner information\n\n### 5. FAQ/AEO Elements\n- Does the page have an FAQ section?\n- Number of FAQ questions\n- Types of questions covered\n- Answer format and length\n\n### 6. Call-to-Action Analysis\n- Primary CTA text and placement\n- Secondary CTAs\n- Contact information visibility\n- Booking/scheduling options\n\n### 7. Unique Content Elements\n- What makes this page unique?\n- Special sections or features\n- Content gaps or weaknesses\n\n## Output Format:\nProvide a structured analysis with clear sections for each competitor, followed by a \"Competitive Summary\" section that includes:\n1. Content gaps we can exploit\n2. Features we MUST include to compete\n3. Opportunities to differentiate\n4. Recommended minimum word count\n5. Must-have sections for our page\n\n## Rules:\n1. Be specific and actionable\n2. Include exact numbers where possible\n3. Note both strengths to emulate and weaknesses to exploit\n4. Focus on elements that impact rankings\n5. Do NOT include the actual competitor content - only analysis"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3936,
+        128
+      ],
+      "id": "7006ca6f-d0f9-45cc-99aa-ac5cd8e9b27b",
+      "name": "Analyze Competitor Content",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-sonnet-4",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        3936,
+        304
+      ],
+      "id": "e82739f0-dd94-46bf-a393-9ffde12fe0cd",
+      "name": "OpenRouter Chat Model1",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const analysisOutput = $input.first().json.output;\n\n// Get competitor URLs from earlier in the flow\nconst competitorData = $('Extract Top 3 Competitor URLs').last().json;\n\nreturn [\n  {\n    json: {\n      competitor_analysis: analysisOutput,\n      competitor_1_url: competitorData.competitor_1_url,\n      competitor_1_title: competitorData.competitor_1_title,\n      competitor_2_url: competitorData.competitor_2_url,\n      competitor_2_title: competitorData.competitor_2_title,\n      competitor_3_url: competitorData.competitor_3_url,\n      competitor_3_title: competitorData.competitor_3_title,\n      target_keyword: $('Generate Target Keyword').last().json.target_keyword\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        128
+      ],
+      "id": "b1801508-c0e5-44cb-8bfb-f919740a2fa5",
+      "name": "Format Competitor Analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst targetKeyword = $('Generate Target Keyword').last().json.target_keyword;\n\n// Pull the competitor URLs from the earlier node (this is the reliable source)\nconst competitorData = $('Extract Top 3 Competitor URLs').last().json;\n\nconst fallbackUrls = [\n  competitorData.competitor_1_url,\n  competitorData.competitor_2_url,\n  competitorData.competitor_3_url\n];\n\nlet competitorText = `## Target Keyword: ${targetKeyword}\\n\\n`;\n\nconst competitors = [];\n\nitems.forEach((item, index) => {\n  const data = item.json.data || item.json;\n\n  const html =\n    data.html ||\n    data.markdown ||\n    data.text ||\n    data.content ||\n    (typeof data === 'string' ? data : 'No content available');\n\n  const metadata = data.metadata || {};\n\n  const title = metadata.title || metadata.ogTitle || `Competitor ${index + 1}`;\n  const url = metadata.sourceURL || metadata.url || fallbackUrls[index] || 'Unknown';\n  const description = metadata.description || 'No description';\n\n  competitorText += `## COMPETITOR ${index + 1}\\n`;\n  competitorText += `Title: ${title}\\n`;\n  competitorText += `URL: ${url}\\n`;\n  competitorText += `Description: ${description}\\n\\n`;\n  competitorText += `### CONTENT:\\n${String(html).substring(0, 15000)}\\n\\n`;\n  competitorText += `---\\n\\n`;\n\n  competitors.push({\n    index: index + 1,\n    title,\n    url,\n    description\n  });\n});\n\nreturn [\n  {\n    json: {\n      competitor_content: competitorText,\n      competitors,                 // ✅ structured list preserved\n      competitor_urls: fallbackUrls, // ✅ raw url list preserved\n      target_keyword: targetKeyword,\n      total_competitors: items.length\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3744,
+        128
+      ],
+      "id": "8e63b031-b65a-4119-8ebd-28cc619439ef",
+      "name": "Format Competitor Data for Analysis"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "service-page-builder",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -544,
+        -304
+      ],
+      "id": "89405939-a79c-49b8-9401-46d26a0ece03",
+      "name": "Get Client Profile Data1",
+      "webhookId": "757d8fbf-5b71-4b75-a21e-6bb772aac503"
+    },
+    {
+      "parameters": {
+        "jsCode": "const filloutData = $input.first().json;\n\n// Fillout nests questions inside body.submission.questions\nconst questions = filloutData.body?.submission?.questions || [];\n\n// Helper function to find a question by name\nconst getAnswer = (name) => {\n  const question = questions.find(q => q.name === name);\n  return question ? question.value : '';\n};\n\nreturn [\n  {\n    json: {\n      client_id: getAnswer('client_id'),\n      'Target Service': getAnswer('Target Service'),\n      'Target Location': getAnswer('Target Location'),\n      'Additional Notes': getAnswer('Additional Notes (Optional)'),\n      'Clinician Name (Optional)': getAnswer('Clinician Name (Optional)'),\n      'Same-Day Appointments For This Service?': getAnswer('Same-Day Appointments For This Service?') || 'No',\n      'Is Direct Billing Available For This Service?': getAnswer('Is Direct Billing Available For This Service?') || 'No'\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        -304
+      ],
+      "id": "f942ceeb-5a92-4c21-8d67-04d653ab2825",
+      "name": "Map Fillout Fields"
+    },
+    {
+      "parameters": {
+        "url": "=https://r.jina.ai/{{ $json.competitor_1_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "text/html"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3328,
+        80
+      ],
+      "id": "2c5757cc-db8c-4a03-85dd-15bd622594cf",
+      "name": "Jina Scrape Competitor 1"
+    },
+    {
+      "parameters": {
+        "url": "=https://r.jina.ai/{{ $json.competitor_2_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "text/html"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3328,
+        240
+      ],
+      "id": "2191f860-f0cf-4dd6-a50a-be31560a468a",
+      "name": "Jina Scrape Competitor 2"
+    },
+    {
+      "parameters": {
+        "url": "=https://r.jina.ai/{{ $json.competitor_3_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "text/html"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3328,
+        416
+      ],
+      "id": "5b3ecbdc-256e-49f0-8854-ae670b347c2a",
+      "name": "Jina Scrape Competitor 3"
+    },
+    {
+      "parameters": {
+        "content": "DATA COLLECTION",
+        "height": 400,
+        "width": 1024
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -608,
+        -1216
+      ],
+      "id": "1c9ba648-31b1-41ab-b44c-19773b0f60e7",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "TEMPLATE ANALYSIS            ",
+        "height": 416,
+        "width": 976,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -1216
+      ],
+      "id": "49ac9258-930e-4e0e-8795-40298073a1e3",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "RESEARCH",
+        "height": 608,
+        "width": 3280,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        -1744
+      ],
+      "id": "ce310f8d-5b10-4307-a43d-a0428d47e12f",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "CONTENT GENERATION",
+        "height": 624,
+        "width": 2656,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4864,
+        -1648
+      ],
+      "id": "17cd008a-7f04-43e8-89ae-1bab4d166ac2",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "content": "File Prep",
+        "height": 624,
+        "width": 1344,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7664,
+        -1360
+      ],
+      "id": "7da5f22d-2049-4ab0-a793-618f99480eb3",
+      "name": "Sticky Note13"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## TEMPLATE STRUCTURE TO FOLLOW\n\n{{ JSON.stringify($('Analyze Service Page Outline').last().json.output.template_analysis, null, 2) }}\n\n---\n\n## TARGET SERVICE INFORMATION\n\nService: {{ $('Map Fillout Fields').last().json['Target Service'] }}\nLocation: {{ $('Map Fillout Fields').last().json['Target Location'] }}\nClinic Name: {{ $('Get Client Profile Data').last().json.brand_name }}\n\n---\n\n## CLIENT PROFILE DATA\n\nBrand Tone: {{ $('Get Client Profile Data').last().json.brand_tone }}\nCTA Preference: {{ $('Get Client Profile Data').last().json.cta_preference }}\nEmail: {{ $('Get Client Profile Data').last().json.email_address }}\nPhone: {{ $('Get Client Profile Data').last().json.phone_number }}\nWriting Guidelines: {{ $('Get Client Profile Data').last().json.writing_guidelines }}\nCompliance Rules: {{ $('Get Client Profile Data').last().json.compliance_rules }}\n\n---\n\n## ADDITIONAL NOTES FROM CLIENT\n\n{{ $('Map Fillout Fields').last().json['Additional Notes'] }}\n\n---\n\n## CLINICIAN INFORMATION (if applicable)\n\n{{ $('Map Fillout Fields').last().json['Clinician Name (Optional)'] || 'Not specified - write for general clinic team' }}\n\n---\n\n## SERVICE OPTIONS\n\nSame-Day Appointments Available: {{ $('Map Fillout Fields').last().json['Same-Day Appointments For This Service?'] }}\nDirect Billing Available: {{ $('Map Fillout Fields').last().json['Is Direct Billing Available For This Service?'] }}\n\n---\n\n## MARKET RESEARCH INSIGHTS\n\n{{ JSON.stringify($('Market Research Assistant').last().json.output.research_brief, null, 2) }}\n\n---\n\n## TARGET AUDIENCE PERSONA\n\n{{ $('Generate Target Audience Persona').last().json.output }}\n\n---\n\nGenerate content for each section listed in the template structure above. Match the word counts and formatting requirements exactly. Return your response as valid JSON matching the required schema.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an expert healthcare content writer specializing in physiotherapy and rehabilitation service pages. Your task is to generate section-by-section content for a service page based on a provided template structure.\n\n## CRITICAL RULES\n\n### Section Structure (IMPORTANT)\nEach section's content MUST include:\n1. **A headline** - An engaging H2-style title for the section (unless section_type is \"hero\", \"call_to_action\", or \"testimonial_slider\")\n2. **Body content** - The main content following the headline\n\nFormat the content like this:\n[Headline]\n[Body content paragraphs or bullet points]\n\nExample for a \"service_definition\" section about Laser Therapy:\nWhat is Laser Therapy?\nLaser therapy uses focused light energy to stimulate cellular repair and reduce inflammation. At our Toronto clinic, we use Class IV therapeutic lasers to deliver targeted treatment to injured tissues. The light penetrates deep into muscles, joints, and soft tissues to promote natural healing.\n\nHeadlines should:\n- Be engaging and patient-focused (use \"you/your\" when appropriate)\n- Include the service name or condition naturally\n- NOT include location in every headline (use sparingly)\n- Match the section's purpose (educational, persuasive, informational)\n\n### Word Count Matching\n- Each section MUST match the target word count within 10%\n- If template says 50 words, your content should be 45-55 words\n- Count carefully before finalizing each section\n- Word count includes the headline\n\n### Source Attribution Handling\nFor each section, check the \"source\" field in the template:\n- \"generate\" = Write new content based on the target service and research\n- \"client_profile\" = Pull exact data from client profile (contact info, insurance, areas served)\n- \"client_profile_or_skip\" = Use client profile data if available, otherwise mark as [SKIP - NO DATA]\n- \"client_provided_or_skip\" = Mark as [CLIENT TO PROVIDE] - do not generate\n\n### Healthcare Compliance (CRITICAL - NEVER VIOLATE)\nBANNED WORDS - Never use these:\n- \"expert\" → use \"experienced\" or \"trained\"\n- \"specialist\" → use \"therapist\" or \"practitioner\" (unless actual medical specialty)\n- \"best\" → use \"dedicated\" or \"comprehensive\"\n- \"guarantee\" → remove or use \"aim to\" or \"designed to\"\n- \"cure\" → use \"help manage\" or \"support recovery\"\n- \"#1\" or \"number one\" → remove entirely\n\nBANNED CLAIM TYPES:\n- No absolute claims (\"will eliminate\", \"100% effective\")\n- No diagnosis claims\n- No superiority claims over other providers\n- No specific outcome promises\n\nCOMPLIANT ALTERNATIVES:\n- \"We will fix your pain\" → \"We aim to help you manage your discomfort\"\n- \"Our treatment cures...\" → \"Our approach is designed to support relief from...\"\n- \"You will feel better\" → \"Many patients report feeling improvement\"\n\n### Writing Style Guidelines\n- Use \"you\" and \"your\" to speak directly to the patient\n- Avoid clinical jargon - explain in plain language\n- Match the brand tone provided in client profile\n- Write naturally - avoid AI-sounding phrases like \"In today's world\" or \"It's important to note\"\n- Vary sentence length and structure\n- Do NOT use hyphenated bullet-style phrasing in paragraphs\n\n### Formatting Rules\n- For bullet/list sections: Use the exact number of items specified in the template\n- For FAQ sections: Match the question count in the template\n- For paragraphs: Write in flowing prose, not choppy sentences\n- Preserve any special formatting notes from the template\n\n## OUTPUT REQUIREMENTS\nYou MUST return valid JSON matching the output schema exactly. For each section in the template, generate:\n1. section_id - matching the template\n2. section_name - matching the template  \n3. section_type - matching the template\n4. content - your generated content INCLUDING HEADLINE (or data from client profile, or skip marker)\n5. word_count - actual word count of your content\n6. notes - any notes about the section (e.g., \"pulled from client profile\", \"marked for client input\")\n\nInclude metadata at the top level:\n- target_service\n- target_location\n- total_sections\n- total_word_count"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4704,
+        -560
+      ],
+      "id": "c809432a-8f10-45f6-b91e-1bbf8d595cfb",
+      "name": "Generate Service Page Content",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5.2",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        4704,
+        -320
+      ],
+      "id": "b29b1fe8-ecb0-43a8-9a3d-f3b0c75cf116",
+      "name": "claude-opus-4",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "={\n  \"type\": \"object\",\n  \"properties\": {\n    \"generated_content\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"target_service\": {\n          \"type\": \"string\",\n          \"description\": \"The target service this content is for\"\n        },\n        \"target_location\": {\n          \"type\": \"string\",\n          \"description\": \"The target location/city\"\n        },\n        \"total_sections\": {\n          \"type\": \"number\",\n          \"description\": \"Total number of sections generated\"\n        },\n        \"total_word_count\": {\n          \"type\": \"number\",\n          \"description\": \"Combined word count of all generated content\"\n        },\n        \"sections\": {\n          \"type\": \"array\",\n          \"description\": \"Array of all content sections with generated copy\",\n          \"items\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"section_id\": {\n                \"type\": \"number\",\n                \"description\": \"Section ID matching the template\"\n              },\n              \"section_name\": {\n                \"type\": \"string\",\n                \"description\": \"Name of the section\"\n              },\n              \"section_type\": {\n                \"type\": \"string\",\n                \"description\": \"Type of content block\"\n              },\n              \"content\": {\n                \"type\": \"string\",\n                \"description\": \"The generated content for this section\"\n              },\n              \"word_count\": {\n                \"type\": \"number\",\n                \"description\": \"Actual word count of the generated content\"\n              },\n              \"notes\": {\n                \"type\": \"string\",\n                \"description\": \"Any notes about this section (source, skip reason, etc.)\"\n              }\n            },\n            \"required\": [\"section_id\", \"section_name\", \"section_type\", \"content\", \"word_count\"]\n          }\n        }\n      },\n      \"required\": [\"target_service\", \"target_location\", \"total_sections\", \"sections\"]\n    }\n  },\n  \"required\": [\"generated_content\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        4832,
+        -320
+      ],
+      "id": "612c3aeb-ccfb-4564-80ac-e88b1daaeca2",
+      "name": "Content Output Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format the final_content_brief JSON into a structured plain text document for Google Docs\n// Input: $json.output from Image Placement Agent (raw JSON string)\n\n// Get the raw output string from Image Placement Agent\nlet rawOutput = $input.first().json.output;\n\n// Strip markdown code fences if present\nif (typeof rawOutput === 'string') {\n  rawOutput = rawOutput.replace(/^```json\\n?/i, '').replace(/\\n?```$/i, '').trim();\n}\n\n// Attempt to fix common JSON issues before parsing\nlet parsedOutput;\ntry {\n  parsedOutput = JSON.parse(rawOutput);\n} catch (e) {\n  // Try to fix common JSON issues\n  try {\n    // Fix unescaped newlines within strings\n    let fixedOutput = rawOutput\n      .replace(/[\\r\\n]+/g, ' ')  // Replace newlines with spaces\n      .replace(/\\t/g, ' ')       // Replace tabs with spaces\n      .replace(/\\s+/g, ' ')      // Collapse multiple spaces\n      .replace(/,\\s*}/g, '}')    // Remove trailing commas before }\n      .replace(/,\\s*]/g, ']');   // Remove trailing commas before ]\n    \n    parsedOutput = JSON.parse(fixedOutput);\n  } catch (e2) {\n    // If still failing, try to extract just the final_content_brief object\n    try {\n      const match = rawOutput.match(/\"final_content_brief\"\\s*:\\s*(\\{[\\s\\S]*\\})\\s*\\}?\\s*$/);\n      if (match) {\n        parsedOutput = { final_content_brief: JSON.parse(match[1]) };\n      } else {\n        throw new Error('Could not extract final_content_brief from output');\n      }\n    } catch (e3) {\n      throw new Error('Failed to parse Image Placement Agent output. The AI may have generated malformed JSON. Error: ' + e.message);\n    }\n  }\n}\n\n// Extract the content brief\nconst contentBrief = parsedOutput.final_content_brief;\n\n// Validate we have the required data\nif (!contentBrief || !contentBrief.target_service) {\n  throw new Error('Missing required content brief data. Check Image Placement Agent output.');\n}\n\n// Build the plain text document\nlet doc = '';\n\n// Title Section (no equal signs)\ndoc += `${contentBrief.target_service} - ${contentBrief.target_location}\\n\\n`;\n\n// Metadata Overview\ndoc += '📋 CONTENT BRIEF OVERVIEW\\n';\ndoc += '-'.repeat(40) + '\\n';\ndoc += `Target Service: ${contentBrief.target_service}\\n`;\ndoc += `Target Location: ${contentBrief.target_location}\\n`;\ndoc += `Total Sections: ${contentBrief.total_sections}\\n`;\ndoc += `Total Word Count: ${contentBrief.total_word_count || 'N/A'}\\n\\n`;\n\n// SEO Metadata Section\nif (contentBrief.seo_metadata) {\n  doc += '🔍 SEO METADATA\\n';\n  doc += '-'.repeat(40) + '\\n';\n  doc += `Recommended Title: ${contentBrief.seo_metadata.recommended_title}\\n`;\n  doc += `Meta Description: ${contentBrief.seo_metadata.meta_description}\\n`;\n  doc += `Recommended Slug: ${contentBrief.seo_metadata.recommended_slug}\\n`;\n  doc += `Primary Keyword: ${contentBrief.seo_metadata.primary_keyword}\\n`;\n  \n  if (contentBrief.seo_metadata.secondary_keywords && contentBrief.seo_metadata.secondary_keywords.length > 0) {\n    doc += `Secondary Keywords: ${contentBrief.seo_metadata.secondary_keywords.join(', ')}\\n`;\n  }\n  \n  if (contentBrief.seo_metadata.schema_types && contentBrief.seo_metadata.schema_types.length > 0) {\n    doc += `Schema Types: ${contentBrief.seo_metadata.schema_types.join(', ')}\\n`;\n  }\n  doc += '\\n';\n}\n\n// Content Sections\ndoc += '📝 CONTENT SECTIONS\\n';\ndoc += '-'.repeat(40) + '\\n\\n';\n\nif (contentBrief.sections && contentBrief.sections.length > 0) {\n  contentBrief.sections.forEach((section, index) => {\n    doc += `SECTION ${section.section_id}: ${section.section_name.toUpperCase()}\\n`;\n    doc += '-'.repeat(40) + '\\n';\n    doc += `Type: ${section.section_type}\\n`;\n    doc += `Word Count: ${section.word_count}\\n\\n`;\n    \n    // Content\n    doc += 'Content:\\n';\n    doc += `${section.content}\\n\\n`;\n    \n    // Notes\n    if (section.notes) {\n      doc += `Notes: ${section.notes}\\n`;\n    }\n    \n    // SEO Notes\n    if (section.seo_notes) {\n      doc += `SEO Notes: ${section.seo_notes}\\n`;\n    }\n    \n    // Compliance Notes (only show if there were changes)\n    if (section.compliance_notes && section.compliance_notes !== 'No changes needed') {\n      doc += `Compliance Notes: ${section.compliance_notes}\\n`;\n    }\n    \n    doc += '\\n';\n  });\n}\n\n// Image Recommendations Section\nif (contentBrief.image_recommendations && contentBrief.image_recommendations.length > 0) {\n  doc += '🖼️ IMAGE RECOMMENDATIONS\\n';\n  doc += '-'.repeat(40) + '\\n\\n';\n  \n  contentBrief.image_recommendations.forEach((img, index) => {\n    doc += `IMAGE ${img.image_id}\\n`;\n    doc += '-'.repeat(40) + '\\n';\n    doc += `Placement: After Section ${img.placement_after_section}\\n`;\n    doc += `Type: ${img.placement_type}\\n`;\n    doc += `Dimensions: ${img.image_dimensions || 'N/A'}\\n\\n`;\n    \n    // Gemini Prompt\n    doc += 'Gemini Image Prompt:\\n';\n    doc += `${img.gemini_prompt || img.imagen_prompt || 'N/A'}\\n\\n`;\n    \n    // Alt Text\n    doc += `Alt Text: ${img.alt_text || img.unsplash_alt || 'N/A'}\\n\\n`;\n    \n    // Context Notes\n    if (img.context_notes) {\n      doc += `Context: ${img.context_notes}\\n`;\n    }\n    \n    doc += '\\n';\n  });\n}\n\nreturn [\n  {\n    json: {\n      title: `${contentBrief.target_service} - ${contentBrief.target_location} - Content Brief`,\n      content: doc,\n      target_service: contentBrief.target_service,\n      target_location: contentBrief.target_location,\n      total_sections: contentBrief.total_sections,\n      total_word_count: contentBrief.total_word_count\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7776,
+        -208
+      ],
+      "id": "aa6b3f1f-49bf-4c8b-94a5-e81eb881e482",
+      "name": "Format Content Brief for Google Doc",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "folderId": "={{ $('Get Client Profile Data').last().json.drive_folder_id }}",
+        "title": "={{ $json.title }}"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        8048,
+        -208
+      ],
+      "id": "3d03704b-f2b6-44ca-baa2-bd8019b9f04e",
+      "name": "Create Google Doc",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "Mmlv5pH4n5TkJNTA",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{$json.documentId || $json.id}}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "=={{ $('Format Content Brief for Google Doc').last().json.content }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        8352,
+        -208
+      ],
+      "id": "d1745aa0-c23d-4ee1-ac74-763ca07cff3f",
+      "name": "Update Google Doc with Content",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "Mmlv5pH4n5TkJNTA",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Legacy Nodes",
+        "height": 1712,
+        "width": 2624
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2816,
+        2864
+      ],
+      "id": "a1a33a06-3f42-47be-8836-1097bbb89dfe",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5bbd6519-7ffc-40be-af11-ea4509dcd7b4",
+              "name": "service_page_sample_url",
+              "value": "={{ $('Get Client Profile Data').last().json.service_page_sample_url }}\n",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        592,
+        -368
+      ],
+      "id": "d0908c6f-2f55-4baf-bcc8-57ab42d8ce86",
+      "name": "Set Service Page URL"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        5520,
+        -144
+      ],
+      "id": "0bf341d0-cea0-444e-a723-adeee85a7f86",
+      "name": "Merge Page and SEO"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o",
+        "options": {
+          "timeout": 360000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        5840,
+        128
+      ],
+      "id": "b3ba1402-950d-40ed-ae70-e9b1f87df68a",
+      "name": "OpenRouter Gemini 2.5 Pro",
+      "credentials": {
+        "openRouterApi": {
+          "id": "M3nyiKHAXJnKg382",
+          "name": "OpenRouter account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Image Prompt Generator": [
+      {
+        "json": {
+          "output": {
+            "total_images": 21,
+            "images": [
+              {
+                "index": 1,
+                "section_context": "Header main navigation — brand logo area",
+                "image_purpose": "Simple brand emblem used in the header for quick brand recognition without text or trademarks",
+                "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "dealership-emblem.png",
+                "image_prompt": "Minimal abstract automotive emblem composed of clean geometric shapes suggesting a car silhouette, dark green on white, centered, high contrast, no text or trademarks, crisp edges, evenly lit, uncluttered background, suitable as a dealership brand mark — 600x180"
+              },
+              {
+                "index": 2,
+                "section_context": "Hero sales section media image",
+                "image_purpose": "Showcase modern dealership showroom with new and certified pre‑owned vehicles to inspire trust and interest",
+                "original_src": "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "showroom-vehicles-toronto.png",
+                "image_prompt": "Modern Toronto car dealership showroom interior with a mix of new sedans, SUVs, and a hybrid EV, bright natural daylight through large glass windows, polished floors, clean lines, a consultant speaking with a customer in the background, no visible brand logos or text, high-end commercial photography, natural color grading — 1600x1000"
+              },
+              {
+                "index": 3,
+                "section_context": "Testimonials slider — reviewer avatar 1",
+                "image_purpose": "Humanize reviews with a friendly customer headshot",
+                "original_src": "https://images.unsplash.com/photo-1519345182560-3f2917c472ef?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "reviewer-portrait-1.png",
+                "image_prompt": "Friendly customer headshot of a man in his 30s wearing a smart-casual shirt, subtle smile, neutral studio background, soft window light, clean modern aesthetic, no logos or text — 400x400"
+              },
+              {
+                "index": 4,
+                "section_context": "Testimonials slider — review source badge 1",
+                "image_purpose": "Represent a neutral verified review source without branding",
+                "original_src": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "review-source-badge-1.png",
+                "image_prompt": "Subtle round verification badge with a checkmark, matte silver and white tones, soft shadows on a clean white background, minimalist, no text or brand marks, crisp edges, professional presentation — 160x160"
+              },
+              {
+                "index": 5,
+                "section_context": "Testimonials slider — reviewer avatar 2",
+                "image_purpose": "Humanize reviews with a friendly customer headshot",
+                "original_src": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "reviewer-portrait-2.png",
+                "image_prompt": "Friendly customer headshot of a woman in her 30s in smart-casual attire, neutral studio background, soft flattering lighting, approachable expression, clean modern aesthetic, no logos or text — 400x400"
+              },
+              {
+                "index": 6,
+                "section_context": "Testimonials slider — review source badge 2",
+                "image_purpose": "Represent a neutral verified review source without branding",
+                "original_src": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "review-source-badge-2.png",
+                "image_prompt": "Minimal round verification badge with a checkmark, soft matte green and white palette, gentle shadow on white background, clean and brand-neutral, no text — 160x160"
+              },
+              {
+                "index": 7,
+                "section_context": "Testimonials slider — reviewer avatar 3",
+                "image_purpose": "Humanize reviews with a friendly customer headshot",
+                "original_src": "https://images.unsplash.com/photo-1547425260-76bcadfb4f2c?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "reviewer-portrait-3.png",
+                "image_prompt": "Friendly customer headshot of a man in his 20s wearing a casual jacket, neutral background, soft natural light, relaxed confident expression, clean modern look, no logos or text — 400x400"
+              },
+              {
+                "index": 8,
+                "section_context": "Testimonials slider — review source badge 3",
+                "image_purpose": "Represent a neutral verified review source without branding",
+                "original_src": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "review-source-badge-3.png",
+                "image_prompt": "Round verification badge with a checkmark, neutral gray and white tones, soft realistic shadows, minimalist, brand-agnostic, no text — 160x160"
+              },
+              {
+                "index": 9,
+                "section_context": "Service description — right image (test drive)",
+                "image_purpose": "Visualize test drives on Toronto streets for real-world context",
+                "original_src": "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "toronto-test-drive.png",
+                "image_prompt": "Modern mid-size SUV in motion on a downtown Toronto street, light traffic, urban mid-rise buildings with a distant CN Tower softly visible, daylight with gentle motion blur, clean vehicle with no manufacturer badges, crisp commercial look — 1400x800"
+              },
+              {
+                "index": 10,
+                "section_context": "Service description — right image (CPO inspection)",
+                "image_purpose": "Show certified pre‑owned inspection and documentation process",
+                "original_src": "https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "cpo-inspection-checklist.png",
+                "image_prompt": "Service technician in a clean dealership bay inspecting a vehicle’s engine bay with an LED work light, holding a clipboard with a checklist, tidy tools, safety gloves, bright even lighting, uniforms without logos, professional and transparent atmosphere — 1400x900"
+              },
+              {
+                "index": 11,
+                "section_context": "Benefits — AWD winter image",
+                "image_purpose": "Communicate winter capability and safety for Toronto driving",
+                "original_src": "https://images.unsplash.com/photo-1483721310020-03333e577078?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "awd-winter-driving.png",
+                "image_prompt": "All-wheel-drive crossover driving through fresh snow on a Toronto neighborhood street, light snowfall, winter trees and houses, tire tracks visible, headlights on, controlled and confident motion, no brand logos — 1400x900"
+              },
+              {
+                "index": 12,
+                "section_context": "Benefits — finance/lease meeting image",
+                "image_purpose": "Illustrate transparent finance and lease review",
+                "original_src": "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "finance-meeting.png",
+                "image_prompt": "Finance manager and customer seated at a modern desk reviewing a purchase agreement, open laptop, calculator, pen, and neatly arranged documents, warm natural window light, professional and transparent feel, no visible brand logos — 1400x900"
+              },
+              {
+                "index": 13,
+                "section_context": "Benefits — service advisor care image",
+                "image_purpose": "Show friendly, transparent after‑sales support",
+                "original_src": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "service-advisor-care.png",
+                "image_prompt": "Service advisor speaking with a customer beside a vehicle in a bright service drive-through, using a digital tablet to review maintenance, friendly neutral expressions, clean uniforms without logos, natural lighting, tidy environment — 1400x900"
+              },
+              {
+                "index": 14,
+                "section_context": "CTA banner background image",
+                "image_purpose": "Create an aspirational backdrop for booking calls to action",
+                "original_src": "https://via.placeholder.com/1600x800",
+                "image_name": "dealership-exterior-evening.png",
+                "image_prompt": "Evening exterior of a modern glass-walled car dealership in Toronto, rows of vehicles in front with soft reflections on slightly wet pavement, warm interior lighting glowing through windows, urban backdrop, no brand signage or logos visible — 1600x800"
+              },
+              {
+                "index": 15,
+                "section_context": "Team section — Sales Manager headshot",
+                "image_purpose": "Introduce the sales manager with a professional, trustworthy portrait",
+                "original_src": "https://images.unsplash.com/photo-1544725121-be3bf52e2dc3?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "sales-manager-headshot.png",
+                "image_prompt": "Professional headshot of a sales manager in business attire, neutral gray background, soft studio lighting, subtle smile, centered composition, clean high-trust corporate portrait, no logos — 800x800"
+              },
+              {
+                "index": 16,
+                "section_context": "Team section — Finance Manager headshot",
+                "image_purpose": "Introduce the finance manager with a professional, trustworthy portrait",
+                "original_src": "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "finance-manager-headshot.png",
+                "image_prompt": "Professional headshot of a finance manager in business attire, neutral gray background, soft studio lighting, approachable expression, centered composition, clean high-trust look, no logos — 800x800"
+              },
+              {
+                "index": 17,
+                "section_context": "Team section — Service Manager headshot",
+                "image_purpose": "Introduce the service manager with a professional, trustworthy portrait",
+                "original_src": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "service-manager-headshot.png",
+                "image_prompt": "Professional headshot of a service manager wearing business-casual attire, neutral gray background, soft studio lighting, calm confident expression, centered composition, no logos — 800x800"
+              },
+              {
+                "index": 18,
+                "section_context": "Blog — post image (All‑In Pricing guide)",
+                "image_purpose": "Support article about all‑in pricing and reading a bill of sale",
+                "original_src": "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "all-in-pricing-guide.png",
+                "image_prompt": "Close-up scene of a customer reviewing a car purchase quote and bill of sale at a tidy desk, calculator and pen nearby, coffee cup, hands visible, bright natural light, document details recognizable but without readable text or brand marks — 1200x800"
+              },
+              {
+                "index": 19,
+                "section_context": "Blog — post image (CPO vs used vs new)",
+                "image_purpose": "Visualize comparison of new, certified pre‑owned, and used vehicles",
+                "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "cpo-vs-new-comparison.png",
+                "image_prompt": "Three modern cars parked side by side in a bright dealership showroom representing new, certified pre-owned, and used options, neutral colors, clean reflections, depth of field separating each vehicle, no banners, text, or brand logos — 1200x800"
+              },
+              {
+                "index": 20,
+                "section_context": "Blog — post image (Trade‑in checklist)",
+                "image_purpose": "Support article about what to bring for a trade‑in",
+                "original_src": "https://images.unsplash.com/photo-1519241047957-be31d7379a5d?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "trade-in-checklist.png",
+                "image_prompt": "Customer handing over spare keys and a folder of service records to an appraiser next to a parked car, friendly professional interaction, daylight, documents visible without readable text, no brand logos — 1200x800"
+              },
+              {
+                "index": 21,
+                "section_context": "Footer — logo area",
+                "image_purpose": "Simple brand emblem variant suitable for dark footer background",
+                "original_src": "https://images.unsplash.com/photo-1505764706515-aa95265c5abc?auto=format&fit=crop&w=1600&q=80",
+                "image_name": "footer-emblem-white.png",
+                "image_prompt": "Minimal white abstract automotive emblem centered on a deep green gradient background, clean geometric shapes, no text, crisp high-contrast edges, suitable as a footer mark — 600x180"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Format Prompts": [
+      {
+        "json": {
+          "index": 1,
+          "image_name": "dealership-emblem.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Minimal abstract automotive emblem composed of clean geometric shapes suggesting a car silhouette, dark green on white, centered, high contrast, no text or trademarks, crisp edges, evenly lit, uncluttered background, suitable as a dealership brand mark — 600x180",
+          "section_context": "Header main navigation — brand logo area"
+        }
+      },
+      {
+        "json": {
+          "index": 2,
+          "image_name": "showroom-vehicles-toronto.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Modern Toronto car dealership showroom interior with a mix of new sedans, SUVs, and a hybrid EV, bright natural daylight through large glass windows, polished floors, clean lines, a consultant speaking with a customer in the background, no visible brand logos or text, high-end commercial photography, natural color grading — 1600x1000",
+          "section_context": "Hero sales section media image"
+        }
+      },
+      {
+        "json": {
+          "index": 3,
+          "image_name": "reviewer-portrait-1.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Friendly customer headshot of a man in his 30s wearing a smart-casual shirt, subtle smile, neutral studio background, soft window light, clean modern aesthetic, no logos or text — 400x400",
+          "section_context": "Testimonials slider — reviewer avatar 1"
+        }
+      },
+      {
+        "json": {
+          "index": 4,
+          "image_name": "review-source-badge-1.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Subtle round verification badge with a checkmark, matte silver and white tones, soft shadows on a clean white background, minimalist, no text or brand marks, crisp edges, professional presentation — 160x160",
+          "section_context": "Testimonials slider — review source badge 1"
+        }
+      },
+      {
+        "json": {
+          "index": 5,
+          "image_name": "reviewer-portrait-2.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Friendly customer headshot of a woman in her 30s in smart-casual attire, neutral studio background, soft flattering lighting, approachable expression, clean modern aesthetic, no logos or text — 400x400",
+          "section_context": "Testimonials slider — reviewer avatar 2"
+        }
+      },
+      {
+        "json": {
+          "index": 6,
+          "image_name": "review-source-badge-2.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Minimal round verification badge with a checkmark, soft matte green and white palette, gentle shadow on white background, clean and brand-neutral, no text — 160x160",
+          "section_context": "Testimonials slider — review source badge 2"
+        }
+      },
+      {
+        "json": {
+          "index": 7,
+          "image_name": "reviewer-portrait-3.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Friendly customer headshot of a man in his 20s wearing a casual jacket, neutral background, soft natural light, relaxed confident expression, clean modern look, no logos or text — 400x400",
+          "section_context": "Testimonials slider — reviewer avatar 3"
+        }
+      },
+      {
+        "json": {
+          "index": 8,
+          "image_name": "review-source-badge-3.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Round verification badge with a checkmark, neutral gray and white tones, soft realistic shadows, minimalist, brand-agnostic, no text — 160x160",
+          "section_context": "Testimonials slider — review source badge 3"
+        }
+      },
+      {
+        "json": {
+          "index": 9,
+          "image_name": "toronto-test-drive.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Modern mid-size SUV in motion on a downtown Toronto street, light traffic, urban mid-rise buildings with a distant CN Tower softly visible, daylight with gentle motion blur, clean vehicle with no manufacturer badges, crisp commercial look — 1400x800",
+          "section_context": "Service description — right image (test drive)"
+        }
+      },
+      {
+        "json": {
+          "index": 10,
+          "image_name": "cpo-inspection-checklist.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Service technician in a clean dealership bay inspecting a vehicle’s engine bay with an LED work light, holding a clipboard with a checklist, tidy tools, safety gloves, bright even lighting, uniforms without logos, professional and transparent atmosphere — 1400x900",
+          "section_context": "Service description — right image (CPO inspection)"
+        }
+      },
+      {
+        "json": {
+          "index": 11,
+          "image_name": "awd-winter-driving.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "All-wheel-drive crossover driving through fresh snow on a Toronto neighborhood street, light snowfall, winter trees and houses, tire tracks visible, headlights on, controlled and confident motion, no brand logos — 1400x900",
+          "section_context": "Benefits — AWD winter image"
+        }
+      },
+      {
+        "json": {
+          "index": 12,
+          "image_name": "finance-meeting.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Finance manager and customer seated at a modern desk reviewing a purchase agreement, open laptop, calculator, pen, and neatly arranged documents, warm natural window light, professional and transparent feel, no visible brand logos — 1400x900",
+          "section_context": "Benefits — finance/lease meeting image"
+        }
+      },
+      {
+        "json": {
+          "index": 13,
+          "image_name": "service-advisor-care.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Service advisor speaking with a customer beside a vehicle in a bright service drive-through, using a digital tablet to review maintenance, friendly neutral expressions, clean uniforms without logos, natural lighting, tidy environment — 1400x900",
+          "section_context": "Benefits — service advisor care image"
+        }
+      },
+      {
+        "json": {
+          "index": 14,
+          "image_name": "dealership-exterior-evening.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Evening exterior of a modern glass-walled car dealership in Toronto, rows of vehicles in front with soft reflections on slightly wet pavement, warm interior lighting glowing through windows, urban backdrop, no brand signage or logos visible — 1600x800",
+          "section_context": "CTA banner background image"
+        }
+      },
+      {
+        "json": {
+          "index": 15,
+          "image_name": "sales-manager-headshot.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Professional headshot of a sales manager in business attire, neutral gray background, soft studio lighting, subtle smile, centered composition, clean high-trust corporate portrait, no logos — 800x800",
+          "section_context": "Team section — Sales Manager headshot"
+        }
+      },
+      {
+        "json": {
+          "index": 16,
+          "image_name": "finance-manager-headshot.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Professional headshot of a finance manager in business attire, neutral gray background, soft studio lighting, approachable expression, centered composition, clean high-trust look, no logos — 800x800",
+          "section_context": "Team section — Finance Manager headshot"
+        }
+      },
+      {
+        "json": {
+          "index": 17,
+          "image_name": "service-manager-headshot.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Professional headshot of a service manager wearing business-casual attire, neutral gray background, soft studio lighting, calm confident expression, centered composition, no logos — 800x800",
+          "section_context": "Team section — Service Manager headshot"
+        }
+      },
+      {
+        "json": {
+          "index": 18,
+          "image_name": "all-in-pricing-guide.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Close-up scene of a customer reviewing a car purchase quote and bill of sale at a tidy desk, calculator and pen nearby, coffee cup, hands visible, bright natural light, document details recognizable but without readable text or brand marks — 1200x800",
+          "section_context": "Blog — post image (All‑In Pricing guide)"
+        }
+      },
+      {
+        "json": {
+          "index": 19,
+          "image_name": "cpo-vs-new-comparison.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Three modern cars parked side by side in a bright dealership showroom representing new, certified pre-owned, and used options, neutral colors, clean reflections, depth of field separating each vehicle, no banners, text, or brand logos — 1200x800",
+          "section_context": "Blog — post image (CPO vs used vs new)"
+        }
+      },
+      {
+        "json": {
+          "index": 20,
+          "image_name": "trade-in-checklist.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Customer handing over spare keys and a folder of service records to an appraiser next to a parked car, friendly professional interaction, daylight, documents visible without readable text, no brand logos — 1200x800",
+          "section_context": "Blog — post image (Trade‑in checklist)"
+        }
+      },
+      {
+        "json": {
+          "index": 21,
+          "image_name": "footer-emblem-white.png",
+          "original_src": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
+          "prompt": "Minimal white abstract automotive emblem centered on a deep green gradient background, clean geometric shapes, no text, crisp high-contrast edges, suitable as a footer mark — 600x180",
+          "section_context": "Footer — logo area"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Scrape Service Page": {
+      "main": [
+        [
+          {
+            "node": "Format and Clean the HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Search Queries": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Reddit Search Queries",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format and Clean the HTML": {
+      "main": [
+        [
+          {
+            "node": "Generate Target Keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Reddit Posts": {
+      "main": [
+        [
+          {
+            "node": "Format Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Posts": {
+      "main": [
+        [
+          {
+            "node": "Analyze Useful Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit Posts URLS": {
+      "main": [
+        [
+          {
+            "node": "Get Reddit Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Useful Posts": {
+      "main": [
+        []
+      ]
+    },
+    "OpenRouter GPT-5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Reddit Search Queries",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter gpt-5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze Useful Posts",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Posts": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Analyze Useful Posts",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Search Queries1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Google Search Queries",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Reddit Search Queries": {
+      "main": [
+        [
+          {
+            "node": "Reddit Posts URLS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Google Search Queries": {
+      "main": [
+        [
+          {
+            "node": "Format Agent Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search": {
+      "main": [
+        [
+          {
+            "node": "Format & Clean the Travily Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Agent Result": {
+      "main": [
+        [
+          {
+            "node": "Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format & Clean the Travily Result": {
+      "main": [
+        [
+          {
+            "node": "Market Research Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter GPT5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Google Search Queries",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Claude Opus 4.5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze Service Page Outline",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Layout": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Analyze Service Page Outline",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Service Page Outline": {
+      "main": [
+        [
+          {
+            "node": "Generate Target Audience Persona",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Client Profile Data": {
+      "main": [
+        [
+          {
+            "node": "Check If Client Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Client Exists": {
+      "main": [
+        [
+          {
+            "node": "Check If Service Page Url Exists",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Client Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Service Page Url Exists": {
+      "main": [
+        [
+          {
+            "node": "Set Service Page URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Service Page Url Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Assistant Research": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Market Research Assistant",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Gpt-5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Market Research Assistant",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Market Research Assistant": {
+      "main": [
+        [
+          {
+            "node": "Generate Service Page Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format & Clean the Service Page HTML": {
+      "main": [
+        []
+      ]
+    },
+    "Image Placement Agent": {
+      "main": [
+        [
+          {
+            "node": "Format Content Brief for Google Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make Service Page HTML & CSS": {
+      "main": [
+        []
+      ]
+    },
+    "Add JavaScript to the Service Page": {
+      "main": [
+        []
+      ]
+    },
+    "OpenRouter Gpt5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Image Prompt Generator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Prompt Generator": {
+      "main": [
+        [
+          {
+            "node": "Format Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Prompts": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Add Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate an image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Folder": {
+      "main": [
+        [
+          {
+            "node": "Create HTML File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create HTML File": {
+      "main": [
+        []
+      ]
+    },
+    "Generate an image": {
+      "main": [
+        [
+          {
+            "node": "Save Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Image": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Log": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Image Prompts": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Image Prompt Generator",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter GPT-40-mini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Image Path Replacer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Path Replacer": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser for Image Replacer": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Image Path Replacer",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make Path for replacements": {
+      "main": [
+        [
+          {
+            "node": "Image Path Replacer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update HTML File": {
+      "main": [
+        []
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Update HTML File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logger": {
+      "main": [
+        [
+          {
+            "node": "Send Email to Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Gpt 5.2 Pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Image Placement Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Format & Clean the Service Page HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Image Placement Agent Response": {
+      "main": [
+        []
+      ]
+    },
+    "Format JavaScript Agent Response": {
+      "main": [
+        []
+      ]
+    },
+    "Claude Sonnet 4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Target Audience Persona",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Target Audience Persona": {
+      "main": [
+        [
+          {
+            "node": "Generate Google Search Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compliance Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Image Placement Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Compliance Review Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Compliance Agent Response": {
+      "main": [
+        []
+      ]
+    },
+    "SEO/GEO/AEO Optimization Agent": {
+      "main": [
+        [
+          {
+            "node": "Compliance Review Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format SEO Agent Response": {
+      "main": [
+        []
+      ]
+    },
+    "Generate Target Keyword": {
+      "main": [
+        [
+          {
+            "node": "Search Local Competitors",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Analyze Service Page Outline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Local Competitors": {
+      "main": [
+        [
+          {
+            "node": "Extract Top 3 Competitor URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Top 3 Competitor URLs": {
+      "main": [
+        [
+          {
+            "node": "Jina Scrape Competitor 1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Jina Scrape Competitor 2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Jina Scrape Competitor 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Competitor Pages": {
+      "main": [
+        [
+          {
+            "node": "Format Competitor Data for Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Competitor Content": {
+      "main": [
+        [
+          {
+            "node": "Format Competitor Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze Competitor Content",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Competitor Analysis": {
+      "main": [
+        [
+          {
+            "node": "Merge Page and SEO",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Format Competitor Data for Analysis": {
+      "main": [
+        [
+          {
+            "node": "Analyze Competitor Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Client Profile Data1": {
+      "main": [
+        [
+          {
+            "node": "Map Fillout Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Fillout Fields": {
+      "main": [
+        [
+          {
+            "node": "Get Client Profile Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jina Scrape Competitor 1": {
+      "main": [
+        [
+          {
+            "node": "Merge Competitor Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jina Scrape Competitor 2": {
+      "main": [
+        [
+          {
+            "node": "Merge Competitor Pages",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Jina Scrape Competitor 3": {
+      "main": [
+        [
+          {
+            "node": "Merge Competitor Pages",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Generate Service Page Content": {
+      "main": [
+        [
+          {
+            "node": "Merge Page and SEO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "claude-opus-4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Service Page Content",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Service Page Content",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Content Brief for Google Doc": {
+      "main": [
+        [
+          {
+            "node": "Create Google Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Doc": {
+      "main": [
+        [
+          {
+            "node": "Update Google Doc with Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Google Doc with Content": {
+      "main": [
+        [
+          {
+            "node": "Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Service Page URL": {
+      "main": [
+        [
+          {
+            "node": "Scrape Service Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Page and SEO": {
+      "main": [
+        [
+          {
+            "node": "SEO/GEO/AEO Optimization Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Gemini 2.5 Pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "SEO/GEO/AEO Optimization Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "YnOlcJVYH5mjjFKw"
+  },
+  "versionId": "612c8352-29b8-4a86-849b-dc81b8d7ebd1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "43fdc4c0ab73fda698a9f2922b57105f2719afb9285814bdf9ce1aaa3267e374"
+  },
+  "id": "JAQX1ByjgT3DDXN3",
+  "tags": []
+}
